@@ -41,6 +41,28 @@ if (process.env.PL_REFRESH_CATALOG === 'true') {
 if (data.siteSettings) {
   data.siteSettings.canonicalUrl = origin + '/petite-lueur-pl/';
 }
+// The Aikatsu catalogue may fall back to an approved snapshot during a slow Notion read.
+// Keep the approved 90 SKUs, exact official item identifier, and hard 12:00 close consistent.
+// Server-side acceptance is independently enforced by Apps Script v259.
+const aikatsuCode = 'PL-AIKATSU-261031';
+const aikatsuProducts = data.products.filter(p => p.campaignCode === aikatsuCode);
+if (aikatsuProducts.length < 90) {
+  throw new Error('Aikatsu approved catalogue incomplete: ' + aikatsuProducts.length);
+}
+const aikatsuNotice = 'PL 收單至台灣時間 10/31 12:00；若提前額滿，將立即停止收單。';
+data.products = data.products.map(product => {
+  if (product.campaignCode !== aikatsuCode) return product;
+  const note = String(product.note || '').trim();
+  return {
+    ...product,
+    ...(product.code === '584-1127'
+      ? { title: '偶像學園｜女裝上衣 Sweetie Berry｜粉色女裝上衣 L' }
+      : {}),
+    preorderDeadline: '2026-10-31T12:00:00+08:00',
+    note: note.includes(aikatsuNotice) ? note : [note, aikatsuNotice].filter(Boolean).join(' '),
+  };
+});
+
 const encoded = Buffer.from(JSON.stringify(data), 'utf8').toString('base64url');
 html = html.replace(payloadPattern, (_, before, _old, after) => before + encoded + after);
 
