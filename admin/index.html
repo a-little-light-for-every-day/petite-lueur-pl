@@ -77,12 +77,12 @@
             <div class="card"><h2>🗂️ 歷史紀錄</h2><div id="historyList" class="list"><p class="tiny">載入中</p></div></div>
           </div>
         </div>
-        <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div></div>
-        <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div></div>
+        <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div><div id="wishDetail" class="card hidden" style="margin-top:16px"></div></div>
+        <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div><div id="catalogDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；其他採購與集運仍由原工作台管理。</p><div id="fulfillList" class="list"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
         <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
-        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>目前階段：安全讀取與訂單寫入</strong><div class="tiny">已開放費用／物流變更與人工核帳；搶貨結果和其他進階管理仍請使用原工作台。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
+        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">目前支援訂單費用、追蹤號碼、人工核帳、商品售價與上架狀態、團次收款流程及詢價處理；採購、集運建立與出貨進階作業仍使用原工作台。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
       </main>
     </div>
   </div>
@@ -279,7 +279,125 @@
       const b=document.createElement('button');b.className='btn';b.type='button';b.textContent='查看詳情';b.addEventListener('click',()=>showOrderDetail(r));item.append(b);
     });
   }
-  function renderCatalog(){const q=el('catalogSearch').value.trim().toLocaleLowerCase(),rows=state.catalogMode==='campaigns'?state.campaigns:state.products;paintList('catalogList',rows.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q)),['name','title','code'],'未找到符合的資料');}
+  function renderCatalog(){const q=el('catalogSearch').value.trim().toLocaleLowerCase(),rows=(state.catalogMode==='campaigns'?state.campaigns:state.products).filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q));paintList('catalogList',rows,['name','title','code'],'未找到符合的資料');el('catalogDetail').classList.add('hidden');[...el('catalogList').querySelectorAll('.item')].forEach((item,i)=>{const r=rows[i];if(!r)return;const b=document.createElement('button');b.className='btn';b.type='button';b.textContent=state.catalogMode==='campaigns'?'設定團次':'編輯商品';b.addEventListener('click',()=>state.catalogMode==='campaigns'?showCampaignDetail(r):showProductDetail(r));item.append(b);});}
+
+  // Update controls use the existing Apps Script owner token, never a client-side secret.
+  function choiceBox(host,title,values,current){
+    const wrap=document.createElement('label');wrap.className='actionField';
+    const caption=document.createElement('span');caption.textContent=title;wrap.append(caption);
+    const select=document.createElement('select');select.className='search';
+    values.forEach(([value,name])=>{const o=document.createElement('option');o.value=value;o.textContent=name;select.append(o);});
+    select.value=String(current==null?'':current);wrap.append(select);host.append(wrap);return select;
+  }
+  function checkboxBox(host,title,checked){
+    const wrap=document.createElement('label');wrap.className='row';wrap.style.alignItems='center';
+    const input=document.createElement('input');input.type='checkbox';input.checked=!!checked;input.style.width='22px';input.style.height='22px';
+    const text=document.createElement('strong');text.textContent=title;wrap.append(input,text);host.append(wrap);return input;
+  }
+  function catalogPanel(title){
+    const host=el('catalogDetail');host.replaceChildren();host.classList.remove('hidden');
+    const heading=document.createElement('h2');heading.textContent=title;host.append(heading);
+    const grid=document.createElement('div');grid.className='actionGrid';host.append(grid);
+    host.scrollIntoView({behavior:'smooth',block:'start'});return {host,grid};
+  }
+  function showProductDetail(p){
+    const pageId=String(p.id||p.pageId||'');
+    const {host,grid}=catalogPanel('商品管理｜'+textOf(p,['title','name','code']));
+    const meta=document.createElement('p');meta.className='tiny';meta.textContent='商品編號：'+String(p.code||'未設定')+'｜只會儲存修改過的欄位。';host.insertBefore(meta,grid);
+    if(!pageId){const w=document.createElement('p');w.className='status bad';w.textContent='此商品缺少識別碼，無法安全更新。';host.append(w);return;}
+    const statuses=['預購中','現貨','少量現貨','可詢價','暫停接單','完售'];
+    const originalStatus=Array.isArray(p.statuses)&&p.statuses.length?String(p.statuses[0]):String(p.status||'');
+    const stateChoices=[[originalStatus||'','目前：'+(originalStatus||'未設定')],...statuses.filter(s=>s!==originalStatus).map(s=>[s,s])];
+    const status=choiceBox(grid,'商品狀態',stateChoices,originalStatus);
+    const price=fieldBox(grid,'台幣售價（NT$）','number',p.priceTwd??'');
+    const published=checkboxBox(host,'公開上架（取消勾選即可下架）',p.published===true);
+    const warning=document.createElement('p');warning.className='status warn';
+    warning.textContent='公開上架前請確認採購條件、原始官方商品圖、商品規格與運送限制。下架會影響客人可見狀態；此操作不會寄信。';host.append(warning);
+    const save=document.createElement('button');save.type='button';save.className='btn primary';save.textContent='儲存商品修改';
+    const note=document.createElement('p');note.className='tiny';note.setAttribute('role','status');host.append(save,note);
+    save.addEventListener('click',async()=>{
+      const fields={},newStatus=status.value,rawPrice=price.value.trim();
+      if(newStatus!==originalStatus){if(!statuses.includes(newStatus)){note.textContent='請先選擇有效的商品狀態。';return;}fields.status=newStatus;}
+      if(rawPrice!==String(p.priceTwd??'')){
+        const n=Number(rawPrice);if(rawPrice===''||!Number.isInteger(n)||n<0||n>10000000){note.textContent='商品台幣售價須為 0 以上整數。';return;}
+        fields.priceTwd=n;
+      }
+      if(published.checked!==(p.published===true))fields.published=published.checked;
+      if(!Object.keys(fields).length){note.textContent='沒有資料變更。';return;}
+      if(fields.published===true){
+        if(String(p.shippingReview||'')==='原則不承接'){note.textContent='運送審核標為原則不承接，請先在原工作台解除風險。';return;}
+        if(!Number(rawPrice)){note.textContent='公開商品需先確認有效台幣售價。';return;}
+        if(!confirm('確定已確認採購、官方圖片、運送審核與商品內容，並把此商品公開給客人？'))return;
+      }else if(fields.published===false){
+        if(!confirm('確定要將商品下架？客人會立刻無法從正式商店找到此商品。'))return;
+      }else if(!confirm('確定更新商品「'+textOf(p,['title','name','code'])+'」的 '+Object.keys(fields).length+' 個欄位？'))return;
+      save.disabled=true;note.textContent='寫入商品資料中…';
+      try{
+        const res=await rpc('updateProduct',[{pageId,fields}]);if(res&&res.ok===false)throw new Error(res.message||'更新失敗');
+        const fresh=await rpc('bootstrap');if(!fresh||fresh.ok!==true)throw new Error('重新讀取商品失敗');
+        state.products=Array.isArray(fresh.products)?fresh.products:[];state.campaigns=Array.isArray(fresh.campaigns)?fresh.campaigns:[];
+        renderCatalog();note.textContent='商品已更新。';note.className='status ok';save.disabled=false;
+        // Keep the just-edited card visible as an audit of the saved values.
+        const saved=state.products.find(x=>String(x.id||x.pageId||'')===pageId);
+        if(saved)showProductDetail(saved);
+      }catch(e){note.textContent='商品更新失敗：'+e.message;note.className='status bad';save.disabled=false;}
+    });
+  }
+  function showCampaignDetail(c){
+    const campaignId=String(c.id||c.pageId||'');
+    const {host,grid}=catalogPanel('團次設定｜'+textOf(c,['name','title','code']));
+    const options=[['','預設流程'],['PREPAY','先收款再下單'],['GRAB_FIRST','搶貨優先（請留意收款條件）']];
+    const workflow=choiceBox(grid,'收款／採購流程',options,String(c.workflow||''));
+    const note=document.createElement('p');note.className='tiny';host.append(note);
+    const btn=document.createElement('button');btn.className='btn primary';btn.type='button';btn.textContent='儲存團次流程';host.append(btn);
+    btn.addEventListener('click',async()=>{
+      if(workflow.value===String(c.workflow||'')){note.textContent='沒有資料變更。';return;}
+      if(!confirm('確定更新此團次的採購／收款流程？請確認客人付款安排。'))return;
+      btn.disabled=true;note.textContent='儲存中…';
+      try{const res=await rpc('updateCampaignWorkflow',[{campaignId,workflow:workflow.value}]);if(res&&res.ok===false)throw new Error(res.message||'更新失敗');
+        const fresh=await rpc('bootstrap');if(!fresh||fresh.ok!==true)throw new Error('刷新團次資料失敗');
+        state.campaigns=Array.isArray(fresh.campaigns)?fresh.campaigns:[];state.products=Array.isArray(fresh.products)?fresh.products:[];
+        renderCatalog();const updated=state.campaigns.find(x=>String(x.id||x.pageId||'')===campaignId);if(updated)showCampaignDetail(updated);
+      }catch(e){note.textContent='團次更新失敗：'+e.message;note.className='status bad';}finally{btn.disabled=false;}
+    });
+  }
+  function renderWishes(){
+    paintList('wishesList',state.wishes,['title','wishNumber'],'目前沒有詢價與許願紀錄');
+    el('wishDetail').classList.add('hidden');
+    [...el('wishesList').querySelectorAll('.item')].forEach((item,i)=>{const r=state.wishes[i];if(!r)return;
+      const b=document.createElement('button');b.type='button';b.className='btn';b.textContent='處理詢價';b.addEventListener('click',()=>showWishDetail(r));item.append(b);
+    });
+  }
+  function showWishDetail(w){
+    const pageId=String(w.pageId||w.id||'');
+    const box=el('wishDetail');box.replaceChildren();box.classList.remove('hidden');
+    const title=document.createElement('h2');title.textContent='詢價處理｜'+textOf(w,['title','wishNumber']);box.append(title);
+    const meta=document.createElement('p');meta.className='tiny';meta.textContent=[w.wishNumber,w.sourceUrl,w.email].filter(Boolean).join(' · ');box.append(meta);
+    const grid=document.createElement('div');grid.className='actionGrid';box.append(grid);
+    const choices=['待主購確認','可代購','已報價','不可代購','已轉商品'];
+    const status=choiceBox(grid,'處理狀態',choices.map(s=>[s,s]),w.status||'待主購確認');
+    const price=fieldBox(grid,'提供客人的台幣試算','number',w.priceTwd??'');
+    const internal=fieldBox(grid,'主購內部備註','text','');internal.maxLength=240;
+    const related=fieldBox(grid,'對應團次編號（選填）','text','');related.maxLength=80;
+    const save=document.createElement('button');save.className='btn primary';save.type='button';save.textContent='儲存詢價處理';
+    const note=document.createElement('p');note.className='tiny';box.append(save,note);
+    save.addEventListener('click',async()=>{
+      const raw=price.value.trim();
+      if(raw!==''&&(!Number.isFinite(Number(raw))||Number(raw)<0||Number(raw)>10000000)){note.textContent='台幣試算金額有誤。';return;}
+      if(status.value==='已轉商品'&&!related.value.trim()&&String(w.inquiryKind||'').includes('split')){note.textContent='拆團意願標記已轉商品前，請填實際建立的團次編號。';return;}
+      if(!confirm('確定更新此筆詢價審核資料？不會自動寄信給客人。'))return;
+      save.disabled=true;note.textContent='儲存中…';
+      try{const fields={status:status.value,internalNote:internal.value.trim(),relatedCampaignCode:related.value.trim()};if(raw!==String(w.priceTwd??'')&&raw!=='')fields.priceTwd=raw;
+        const res=await rpc('reviewWish',[{pageId,fields}]);if(res&&res.ok===false)throw new Error(res.message||'更新失敗');
+        const fresh=await rpc('operationsCore');if(!fresh||fresh.ok===false)throw new Error('重新讀取詢價失敗');
+        state.wishes=Array.isArray(fresh.wishes)?fresh.wishes:[];renderWishes();
+        const saved=state.wishes.find(x=>String(x.pageId||x.id||'')===pageId);if(saved)showWishDetail(saved);
+        const done=document.createElement('p');done.className='status ok';done.textContent='詢價處理已更新並重新載入。';el('wishDetail').append(done);save.disabled=false;
+      }catch(e){note.textContent='詢價更新失敗：'+e.message;note.className='status bad';save.disabled=false;}
+    });
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+
   function renderFull(){
     if(!state.full)return;
     const shipments=state.full.shipments||[],purchases=state.full.purchases||[],cons=state.full.consolidations||[];
@@ -308,7 +426,7 @@
     rpc('operationsCore').then(res=>{
       if(!res||res.ok===false)throw new Error(res&&res.message||'讀取失敗');
       state.orders=Array.isArray(res.orders)?res.orders:[];state.wishes=Array.isArray(res.wishes)?res.wishes:[];state.coreLoaded=true;
-      updateMetrics();renderOrders();renderCatalog();paintList('wishesList',state.wishes,['title','wishNumber'],'目前沒有詢價與許願紀錄');
+      updateMetrics();renderOrders();renderCatalog();renderWishes();
       const notice=el('loadNotice');notice.textContent='已載入訂單 '+state.orders.length+' 筆、團次 '+state.campaigns.length+' 組、商品 '+state.products.length+' 件；付款仍需人工核帳。';notice.className='status ok';
     }).catch(err=>{const n=el('loadNotice');n.textContent='訂單資料載入失敗：'+err.message+'。請勿將空白誤認為沒有訂單。';n.className='status bad';});
   }
