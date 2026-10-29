@@ -6,7 +6,7 @@ const owner = String(process.env.GITHUB_REPOSITORY_OWNER || 'saoririri').toLower
 const pagesOrigin = 'https://' + owner + '.github.io';
 const sourceOrigin = 'https://saoririri.github.io';
 html = html.replaceAll(sourceOrigin, pagesOrigin);
-const payloadPattern = /(<script\b[^>]*\bid="plInitialStoreData"[^>]*\bdata-payload=")([^"]+)(")/;
+const payloadPattern = /(<div\b[^>]*\bid="plInitialStoreData"[^>]*\bdata-payload=")([^"]+)(")/;
 const payloadMatch = html.match(payloadPattern);
 if (!payloadMatch) throw new Error('Published product snapshot missing');
 const data = JSON.parse(Buffer.from(payloadMatch[2], 'base64url').toString('utf8'));
