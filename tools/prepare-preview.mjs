@@ -42,6 +42,13 @@ html = html.replace(shortTransportTimeout, "reject(new Error('服務連線逾時
 html = html.replace('<body>', '<body data-pl-public-site="live">');
 fs.mkdirSync('dist', { recursive: true });
 fs.writeFileSync('dist/index.html', html);
+// The owner UI is static only. All privileged data stays behind the GAS OTP bridge.
+const adminHtml = fs.readFileSync('admin/index.html', 'utf8');
+if (!adminHtml.includes('PL_GAS_ADMIN_CALL') || /BRIDGE_SECRET|NOTION_API_TOKEN/.test(adminHtml)) {
+  throw new Error('Owner UI failed the static security check');
+}
+fs.mkdirSync('dist/admin', { recursive: true });
+fs.writeFileSync('dist/admin/index.html', adminHtml);
 // LINE and the storefront now consume the same approved publication dataset.
 fs.writeFileSync('dist/public-catalog.json', JSON.stringify({
   ...data,
