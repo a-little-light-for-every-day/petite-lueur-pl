@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { approvedPublicCatalog, getLiveApprovedCatalog } from './refresh-public-catalog.mjs';
 
 // The branded organization is the only production publishing destination.
 const owner = String(process.env.GITHUB_REPOSITORY_OWNER || '').toLowerCase();
@@ -15,10 +16,10 @@ html = html.replaceAll(legacyOrigin, origin);
 const payloadPattern = /(<div\b[^>]*\bid="plInitialStoreData"[^>]*\bdata-payload=")([^"]+)(")/;
 const payload = html.match(payloadPattern);
 if (!payload) throw new Error('Approved public catalog snapshot is missing');
-const data = JSON.parse(Buffer.from(payload[2], 'base64url').toString('utf8'));
-if (!Array.isArray(data.products) || data.products.some(p => p.published === false)) {
-  throw new Error('Unpublished product detected in public catalog snapshot');
-}
+const previous = JSON.parse(Buffer.from(payload[2], 'base64url').toString('utf8'));
+const data = process.env.PL_REFRESH_CATALOG === 'true'
+  ? await getLiveApprovedCatalog(previous.products?.length || 0)
+  : approvedPublicCatalog(previous);
 if (data.siteSettings) {
   data.siteSettings.canonicalUrl = origin + '/petite-lueur-pl/';
 }
@@ -41,3 +42,9 @@ html = html.replace(shortTransportTimeout, "reject(new Error('服務連線逾時
 html = html.replace('<body>', '<body data-pl-public-site="live">');
 fs.mkdirSync('dist', { recursive: true });
 fs.writeFileSync('dist/index.html', html);
+// LINE and the storefront now consume the same approved publication dataset.
+fs.writeFileSync('dist/public-catalog.json', JSON.stringify({
+  ...data,
+  generatedAt: new Date().toISOString(),
+}, null, 2) + '\n');
+
