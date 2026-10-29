@@ -87,12 +87,12 @@
   </div>
 </div>
 <nav class="mobileDock hidden" id="mobileDock" aria-label="手機後台導覽"><button data-tab="dashboard">待辦</button><button data-tab="orders">訂單</button><button data-tab="campaigns">商品</button><button data-tab="fulfillment">物流</button><button data-tab="finance">財務</button></nav>
-<iframe title="PL 管理安全橋接" id="gasBridge" hidden referrerpolicy="strict-origin" src="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?staticBridge=1"></iframe>
+<iframe title="PL 管理安全橋接" id="gasBridge" aria-hidden="true" tabindex="-1" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none" referrerpolicy="strict-origin" src="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?staticBridge=1"></iframe>
 <script>
 (function(){
   'use strict';
   const iframe=document.getElementById('gasBridge');
-  const state={ready:false,origin:'',seq:0,waiters:new Map(),campaigns:[],products:[],orders:[],wishes:[],full:null,active:'dashboard',catalogMode:'campaigns',coreLoaded:false};
+  const state={ready:false,origin:'',remote:null,seq:0,waiters:new Map(),campaigns:[],products:[],orders:[],wishes:[],full:null,active:'dashboard',catalogMode:'campaigns',coreLoaded:false};
   const el=id=>document.getElementById(id);
   const legacy='https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1';
   const allowedOrigin=/^https:\/\/(?:[^/]+\.)?googleusercontent\.com$/;
@@ -100,23 +100,24 @@
   function message(txt,mode){const box=el('bridgeState');box.textContent=txt;box.className='status '+(mode||'warn');}
   function rpc(action,args){
     return new Promise((resolve,reject)=>{
-      if(!state.ready||!state.origin)return reject(new Error('安全服務未連線'));
+      if(!state.ready||!state.origin||!state.remote)return reject(new Error('安全服務未連線'));
       const id='pladmin-'+Date.now()+'-'+(++state.seq);
       const timer=setTimeout(()=>{state.waiters.delete(id);reject(new Error('讀取逾時，請稍後重試'))},120000);
       state.waiters.set(id,{resolve,reject,timer});
-      iframe.contentWindow.postMessage({type:'PL_GAS_ADMIN_CALL',id,action,args:Array.isArray(args)?args:[]},state.origin);
+      state.remote.postMessage({type:'PL_GAS_ADMIN_CALL',id,action,args:Array.isArray(args)?args:[]},state.origin);
     });
   }
   window.addEventListener('message',e=>{
-    if(e.source!==iframe.contentWindow||!allowedOrigin.test(e.origin))return;
+    // GAS renders a nested googleusercontent HTML frame. Its window is NOT iframe.contentWindow.
+    if(!allowedOrigin.test(e.origin))return;
     const d=e.data||{};
     if(d.type==='PL_GAS_ADMIN_READY'){
-      state.ready=true;state.origin=e.origin;el('requestOtpBtn').disabled=false;
+      state.ready=true;state.origin=e.origin;state.remote=e.source;el('requestOtpBtn').disabled=false;
       message('已連線，正在檢查此裝置是否保有有效的管理登入。','ok');
       rpc('bootstrap').then(openDashboard).catch(()=>{message('已連線。請使用管理驗證碼登入。','ok');});
       return;
     }
-    if(d.type==='PL_GAS_ADMIN_REPLY'&&typeof d.id==='string'){
+    if(d.type==='PL_GAS_ADMIN_REPLY'&&state.remote&&e.source===state.remote&&e.origin===state.origin&&typeof d.id==='string'){
       const p=state.waiters.get(d.id);if(!p)return;
       clearTimeout(p.timer);state.waiters.delete(d.id);
       if(d.ok)p.resolve(d.result);else p.reject(new Error(String(d.error||'服務暫時不可用')));
