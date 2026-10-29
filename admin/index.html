@@ -79,10 +79,10 @@
         </div>
         <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div><div id="wishDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div><div id="catalogDetail" class="card hidden" style="margin-top:16px"></div></div>
-        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；現有官方採購、集運與台灣出貨紀錄可直接更新；新增批次與附件仍由原工作台處理。</p><input id="fulfillSearch" class="search" placeholder="搜尋批次、物流單號或狀態"><div id="fulfillList" class="list" style="margin-top:14px"></div><div id="fulfillDetail" class="card hidden" style="margin-top:16px"></div></div>
+        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；現有採購、集運與出貨紀錄可查看；寫入須通過安全接口驗證，若暫停請使用原工作台。</p><input id="fulfillSearch" class="search" placeholder="搜尋批次、物流單號或狀態"><div id="fulfillList" class="list" style="margin-top:14px"></div><div id="fulfillDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
         <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><p id="ownerBridgeCheck" class="status warn">管理寫入接口待確認；診斷只傳送無效識別碼，不會更動任何紀錄。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
-        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">可直接編輯現有訂單、商品、團次流程、詢價、採購、集運與台灣出貨；新建採購／集運／出貨批次及附件仍由原工作台處理。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
+        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">可編輯訂單、商品、團次流程與詢價；採購、集運、出貨寫入需先通過安全驗證。新增批次與附件仍由原工作台處理。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
       </main>
     </div>
   </div>
@@ -93,7 +93,7 @@
 (function(){
   'use strict';
   const iframe=document.getElementById('gasBridge');
-  const state={ready:false,origin:'',remote:null,seq:0,waiters:new Map(),campaigns:[],products:[],orders:[],wishes:[],full:null,active:'dashboard',catalogMode:'campaigns',coreLoaded:false};
+  const state={ready:false,origin:'',remote:null,seq:0,waiters:new Map(),campaigns:[],products:[],orders:[],wishes:[],full:null,active:'dashboard',catalogMode:'campaigns',coreLoaded:false,fulfillmentReady:false};
   const el=id=>document.getElementById(id);
   const legacy='https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1';
   const allowedOrigin=/^https:\/\/(?:[^/]+\.)?googleusercontent\.com$/;
@@ -446,6 +446,7 @@
     const original=Object.fromEntries(keys.map(([key])=>[key,controls[key].value]));
     const btn=document.createElement('button');btn.className='btn primary';btn.type='button';btn.textContent='儲存履約修改';
     const note=document.createElement('p');note.className='tiny';note.setAttribute('role','status');host.append(btn,note);
+    if(!state.fulfillmentReady){btn.disabled=true;note.textContent='履約寫入接口仍在部署驗收，暫時請在原主購工作台修改。';}
     btn.addEventListener('click',async()=>{
       const changed={};
       for(const [key,label,kind] of keys){
@@ -496,9 +497,11 @@
       try{await rpc(action,[payload]);return {action,ok:false,reason:'無效請求不應成功'};}
       catch(e){const reason=String(e.message||'');return {action,ok:reason.includes(expected),reason};}
     }));
-    const ready=results.every(x=>x.ok);
-    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價、履約四項安全驗證通過（未修改任何資料）。':'管理寫入接口尚有問題：'+results.filter(x=>!x.ok).map(x=>x.action+'：'+x.reason).join('；')+'。請先使用原工作台。';
-    area.className='status '+(ready?'ok':'bad');
+    const coreReady=results.slice(0,3).every(x=>x.ok);
+    state.fulfillmentReady=!!(results[3]&&results[3].ok);
+    if(coreReady&&state.fulfillmentReady){area.textContent='商品、團次、詢價、履約四項管理接口均已通過安全驗證（未修改任何資料）。';area.className='status ok';}
+    else if(coreReady){area.textContent='商品／團次／詢價已通過驗證；採購、集運、出貨寫入尚未啟用，請使用原工作台。'+(results[3]?.reason?' 原因：'+results[3].reason:'');area.className='status warn';}
+    else {area.textContent='管理接口驗證失敗：'+results.filter(x=>!x.ok).map(x=>x.action+'：'+x.reason).join('；')+'。請先使用原工作台。';area.className='status bad';}
   }
   function openDashboard(data){
     if(!data||data.ok!==true)throw new Error('主購身分未通過');
