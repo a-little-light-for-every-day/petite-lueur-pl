@@ -1140,11 +1140,11 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
           <button class="customerQuickGuide" type="button" onclick="openGuide('rules')">不知道怎麼選？看服務說明 →</button>
         </div>
         <div class="customerQuickGrid">
-          <a class="customerServiceCard shop" href="#shop">
+          <button class="customerServiceCard shop" type="button" onclick="plOpenQuickService('proxy_purchase')">
             <span class="customerServiceIcon">🛍️</span>
             <span><b>日本代購・預購</b><small>找商品、跟團、預購周邊</small></span>
             <em>→</em>
-          </a>
+          </button>
           <button class="customerServiceCard pay" type="button" onclick="plOpenQuickService('direct_order')">
             <span class="customerServiceIcon">💳</span>
             <span><b>日本網站代下單／代付</b><small>台灣卡刷不過、只需要協助付款</small></span>
@@ -1168,16 +1168,16 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   </span>
   <em>→</em>
 </button>
-          <a class="customerServiceCard" href="https://docs.google.com/spreadsheets/d/14RUqyVYyAlD5th0g9fNkxR-8eqV3yhiadTAYNK9Dz4A/edit" target="_blank" rel="noopener noreferrer">
+          <button class="customerServiceCard" type="button" onclick="plOpenQuickService('progress')">
             <span class="customerServiceIcon">📦</span>
             <span><b>團次公開進度・問答</b><small>即時查看進度、公告與公開答覆</small></span>
             <em>→</em>
-          </a>
-          <a class="customerServiceCard" href="https://docs.google.com/forms/d/e/1FAIpQLSdpRLYuyiGe6BQqoGKxAPdDNj6CY4RHifWhMdXneDn4gox-Yw/viewform" target="_blank" rel="noopener noreferrer">
+          </button>
+          <button class="customerServiceCard" type="button" onclick="plOpenQuickService('anonymous')">
             <span class="customerServiceIcon">✉️</span>
             <span><b>匿名提問箱</b><small>免留姓名，經審核後公開回覆</small></span>
             <em>→</em>
-          </a>
+          </button>
 </div>
 
 
@@ -1192,7 +1192,94 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     
 
 
-    <section id="onsiteLive" class="onsiteLiveSection hidden">
+    
+<style id="plQuickModalStyles">
+  .plQuickModal[hidden],.plQuickForm[hidden],.plQuickExternal[hidden],.plQuickField[hidden]{display:none!important}
+  .plQuickModal{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px 12px}
+  .plQuickBackdrop{position:absolute;inset:0;background:rgba(48,34,30,.56);backdrop-filter:blur(5px)}
+  .plQuickWindow{position:relative;width:min(650px,100%);max-height:calc(100dvh - 36px);overflow-y:auto;overscroll-behavior:contain;background:#fffcf9;border:1px solid #eadbd4;border-radius:24px;box-shadow:0 24px 75px rgba(40,27,24,.24);padding:28px;line-height:1.5}
+  .plQuickClose{position:absolute;right:17px;top:14px;display:grid;place-items:center;border:1px solid #e6d5ca;border-radius:50%;background:#fff;width:38px;height:38px;color:#644c44;font-size:24px;line-height:1}
+  .plQuickEyebrow{font-size:11px;letter-spacing:.18em;font-weight:700;color:#a67e70}
+  .plQuickWindow h2{font-family:"Noto Serif TC",Georgia,serif;font-size:clamp(24px,5vw,30px);font-weight:600;margin:8px 42px 8px 0;color:#54413a}
+  .plQuickLead{color:#74625b;font-size:14px;margin:0 0 18px}
+  .plQuickGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .plQuickField{display:flex;flex-direction:column;gap:6px;margin:0 0 12px}
+  .plQuickField label{font-size:13px;color:#58433d;font-weight:650}
+  .plQuickField input,.plQuickField select,.plQuickField textarea{width:100%;min-height:44px;max-width:100%;border:1px solid #dacbc3;border-radius:12px;background:#fff;padding:10px 12px;color:#352a26;font-size:16px;line-height:1.5}
+  .plQuickField textarea{min-height:74px;resize:vertical}
+  .plQuickField input:focus,.plQuickField select:focus,.plQuickField textarea:focus{outline:2px solid #c7a69c;outline-offset:1px}
+  .plQuickFine{font-size:12px;color:#8a7267;margin:6px 0 14px}
+  .plQuickActions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+  .plQuickPrimary{border:0;border-radius:13px;background:#99756b;color:#fff;min-height:46px;padding:10px 23px;font-size:14px;font-weight:700}
+  .plQuickPrimary:disabled{opacity:.58;cursor:wait}
+  .plQuickSecondary{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dac7bd;border-radius:13px;background:#fff;color:#6c5148;min-height:46px;padding:10px 16px;font-size:14px}
+  .plQuickMessage{font-size:13px;white-space:pre-line;margin-top:12px;min-height:18px;color:#8c453e}
+  .plQuickMessage[data-kind="ok"]{color:#3a684f}
+  .plQuickEmbed{width:100%;height:min(56vh,580px);margin-top:12px;border:1px solid #e4d6cf;border-radius:12px;background:#fff}
+  @media(max-width:540px){.plQuickModal{align-items:flex-end;padding:0}.plQuickWindow{width:100%;max-height:94dvh;border-radius:24px 24px 0 0;padding:22px 17px 26px}.plQuickGrid{grid-template-columns:1fr;gap:0}.plQuickPrimary,.plQuickSecondary{flex:1 1 145px}}
+</style>
+<div id="plQuickModal" class="plQuickModal" role="dialog" aria-modal="true" aria-labelledby="plQuickTitle" hidden>
+  <div class="plQuickBackdrop" onclick="plCloseQuickService()"></div>
+  <section class="plQuickWindow" tabindex="-1">
+    <button type="button" class="plQuickClose" aria-label="關閉視窗" onclick="plCloseQuickService()">×</button>
+    <div class="plQuickEyebrow">PETITE LUEUR PL · SERVICE REQUEST</div>
+    <h2 id="plQuickTitle">服務詢價</h2>
+    <p id="plQuickLead" class="plQuickLead"></p>
+    <form id="plQuickForm" class="plQuickForm" novalidate onsubmit="plSubmitQuickService(event)">
+      <div class="plQuickField" id="plQuickUrlRow">
+        <label id="plQuickUrlLabel" for="plQuickUrl">官方商品／商家網址 *</label>
+        <textarea id="plQuickUrl" rows="2" placeholder="https://…"></textarea>
+      </div>
+      <div class="plQuickGrid">
+        <div class="plQuickField" id="plQuickVariantRow">
+          <label for="plQuickVariant">商品規格／貨號／顏色／尺寸</label>
+          <input id="plQuickVariant" placeholder="例如：粉色／M／官方貨號">
+        </div>
+        <div class="plQuickField" id="plQuickQtyRow">
+          <label for="plQuickQty">數量</label>
+          <input id="plQuickQty" type="number" min="1" max="99" value="1" step="1">
+        </div>
+        <div class="plQuickField" id="plQuickAmountRow" hidden>
+          <label for="plQuickAmount">日幣付款金額（若已知）</label>
+          <input id="plQuickAmount" type="number" min="0" step="1" inputmode="numeric" placeholder="¥">
+        </div>
+        <div class="plQuickField" id="plQuickDeadlineRow" hidden>
+          <label for="plQuickDeadline">付款期限（若已知）</label>
+          <input id="plQuickDeadline" type="date">
+        </div>
+        <div class="plQuickField" id="plQuickRouteRow" hidden>
+          <label for="plQuickRoute">希望的運送方式</label>
+          <select id="plQuickRoute"><option value="未定">尚未決定</option><option value="日本直寄台灣">日本直寄台灣</option><option value="日本集運後台灣二次轉寄">日本集運後台灣二次轉寄</option></select>
+        </div>
+      </div>
+      <div class="plQuickField">
+        <label for="plQuickNote">補充說明／付款方式／包裹資訊（選填）</label>
+        <textarea id="plQuickNote" rows="3" placeholder="官方付款方式、商品數量、預計到貨日、包裹體積等"></textarea>
+      </div>
+      <div class="plQuickField">
+        <label for="plQuickEmail">聯絡 Email *</label>
+        <input id="plQuickEmail" type="email" autocomplete="email" inputmode="email" placeholder="yourname@example.com" oninput="plQuickEmailHint()">
+        <small id="plQuickEmailHint" style="color:#ab4d4d;font-size:12px" aria-live="polite"></small>
+      </div>
+      <p class="plQuickFine">此表單僅提交服務詢價，不代表訂單成立或已付款。PL 人工確認可承接後才會提供報價；請勿輸入付款密碼、完整銀行帳號或其他憑證。</p>
+      <div class="plQuickActions">
+        <button class="plQuickPrimary" type="submit" id="plQuickSubmitBtn">送出服務詢價 →</button>
+        <button class="plQuickSecondary" type="button" onclick="plCloseQuickService()">稍後再填</button>
+      </div>
+      <div class="plQuickMessage" id="plQuickMessage" role="status" aria-live="polite"></div>
+    </form>
+    <div class="plQuickExternal" id="plQuickExternal" hidden>
+      <div class="plQuickActions">
+        <a id="plQuickExternalLink" class="plQuickPrimary" href="#" target="_blank" rel="noopener noreferrer">開啟官方表單 →</a>
+        <button type="button" class="plQuickSecondary" onclick="plCloseQuickService()">返回網站</button>
+      </div>
+      <p class="plQuickFine" id="plQuickExternalHint">資料會在原本的官方進度／提問系統處理。</p>
+      <iframe id="plQuickQuestionEmbed" class="plQuickEmbed" title="PL 官方匿名提問表單" loading="lazy" hidden></iframe>
+    </div>
+  </section>
+</div>
+
+<section id="onsiteLive" class="onsiteLiveSection hidden">
       <div class="onsiteLiveHead">
         <div>
           <div class="onsiteLiveEyebrow">JAPAN LOCAL BUYING</div>
@@ -3761,27 +3848,86 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 
 
 <script>
-function plOpenQuickService(type){
-  // A single click must open the form exactly once, on both phone and desktop.
-  const section=document.getElementById('direct-order');
-  const panel=document.getElementById('plDirectInquiryPanel');
-  const select=document.getElementById('plDirectInquiryType');
-  if(!section||!panel){
-    const quick=document.getElementById('service-quick');
-    if(quick)quick.scrollIntoView({behavior:'smooth',block:'start'});
-    return;
-  }
-  section.style.display='block';
-  if(panel.style.display==='none'||!panel.style.display){
-    if(typeof plToggleDirectInquiry==='function')plToggleDirectInquiry();
-    else panel.style.display='block';
-  }
-  if(select){
-    select.value=type||'direct_order';
-    if(typeof plDirectInquiryTypeChanged==='function')plDirectInquiryTypeChanged();
-  }
-  section.scrollIntoView({behavior:'smooth',block:'start'});
-}
+(function(){
+  const cfg={
+    proxy_purchase:{title:'日本代購・預購',lead:'貼上想購買的日本商品網址與款式。若商品已上架，請直接由正式商店訂購；尚未上架的商品可先向 PL 詢價。',urlLabel:'官方商品網址 *',urlPlaceholder:'https://日本商品官方網址…',service:'direct_order'},
+    direct_order:{title:'日本網站代下單／代付',lead:'可提供商品／結帳頁網址、規格及付款方式。PL 確認商店與付款條件後回覆報價；代下單與代購是不同服務。',urlLabel:'商品或結帳頁網址 *',urlPlaceholder:'https://日本商店商品網址…',service:'direct_order'},
+    cvs_payment:{title:'日本超商／銀行振込代付',lead:'請提供商店、付款資訊、日幣金額及期限。此服務需日本端確認可承接，尚未開放直接付款。',urlLabel:'商店／付款通知網址或說明 *',urlPlaceholder:'貼上官方付款通知網址，或填寫商店名稱與付款要求…',service:'cvs_payment'},
+    forwarding:{title:'日本代收・轉運',lead:'先提供包裹來源、數量及預期運送方式。PL 會確認集運規範、尺寸限制與實際成本，再回覆是否可承接。',urlLabel:'商品／商家／包裹來源說明 *',urlPlaceholder:'日本商家、商品頁或預計寄送的包裹內容…',service:'forwarding'},
+    progress:{title:'團次公開進度・問答',lead:'可查看開團進度、公開公告與已答覆事項。若想提出問題，下方也可以開啟官方匿名提問表。',external:'https://docs.google.com/spreadsheets/d/14RUqyVYyAlD5th0g9fNkxR-8eqV3yhiadTAYNK9Dz4A/edit',externalLabel:'查看公開進度表 ↗'},
+    anonymous:{title:'匿名提問箱',lead:'直接在下方官方表單填寫問題，不必在本網站提供姓名或 Email。送出後由 PL 審核與回覆。',external:'https://docs.google.com/forms/d/e/1FAIpQLSdpRLYuyiGe6BQqoGKxAPdDNj6CY4RHifWhMdXneDn4gox-Yw/viewform',externalLabel:'開啟獨立提問表單 ↗'}
+  };
+  let active='',lastFocus=null,complete=false;
+  const get=id=>document.getElementById(id);
+  function message(text,kind){const el=get('plQuickMessage');el.textContent=text||'';el.dataset.kind=kind||'error'}
+  window.plOpenQuickService=function(type){
+    const item=cfg[type];if(!item)return;
+    const modal=get('plQuickModal'),form=get('plQuickForm'),external=get('plQuickExternal');
+    if(!modal)return;
+    lastFocus=document.activeElement;
+    if(active!==type||complete){form.reset();complete=false;get('plQuickSubmitBtn').disabled=false;message('');get('plQuickEmailHint').textContent=''}
+    active=type;
+    get('plQuickTitle').textContent=item.title;
+    get('plQuickLead').textContent=item.lead;
+    form.hidden=!!item.external;external.hidden=!item.external;
+    if(item.external){
+      const link=get('plQuickExternalLink');link.href=item.external;link.textContent=item.externalLabel;
+      get('plQuickExternalHint').textContent=type==='progress'?'查看最新團次進度；若有問題，可透過官方匿名表單提出。':'若嵌入表單載入失敗，請使用上方按鈕開啟獨立表單。';
+      const iframe=get('plQuickQuestionEmbed');
+      iframe.hidden=false;
+      if(!iframe.src)iframe.src='https://docs.google.com/forms/d/e/1FAIpQLSdpRLYuyiGe6BQqoGKxAPdDNj6CY4RHifWhMdXneDn4gox-Yw/viewform?embedded=true';
+    }else{
+      get('plQuickUrlLabel').textContent=item.urlLabel;get('plQuickUrl').placeholder=item.urlPlaceholder;
+      const paying=type==='cvs_payment',forward=type==='forwarding';
+      get('plQuickAmountRow').hidden=!paying;
+      get('plQuickDeadlineRow').hidden=!paying;
+      get('plQuickRouteRow').hidden=!forward;
+      get('plQuickVariantRow').hidden=paying||forward;
+      get('plQuickQtyRow').hidden=paying;
+      get('plQuickSubmitBtn').textContent=complete?'詢價已送出':'送出服務詢價 →';
+    }
+    modal.hidden=false;document.body.style.overflow='hidden';
+    modal.querySelector('.plQuickWindow').focus();
+  };
+  window.plCloseQuickService=function(){
+    const modal=get('plQuickModal');if(!modal)return;
+    modal.hidden=true;document.body.style.overflow='';
+    if(lastFocus&&typeof lastFocus.focus==='function')lastFocus.focus();
+  };
+  window.plQuickEmailHint=function(){
+    const el=get('plQuickEmail'),hint=get('plQuickEmailHint');
+    const address=(el.value||'').trim().toLowerCase();
+    const bad={'gmail.comn':'gmail.com','gmail.con':'gmail.com','gmail.comm':'gmail.com','gamil.com':'gmail.com','gmial.com':'gmail.com','icloud.comn':'icloud.com','hotmail.comn':'hotmail.com','outlook.comn':'outlook.com'};
+    const domain=address.split('@')[1]||'';
+    hint.textContent=bad[domain]?'⚠ 網域可能拼錯，是否應為 '+bad[domain]+'？請先自行更正。':'';
+  };
+  window.plSubmitQuickService=async function(event){
+    event.preventDefault();
+    const cfgItem=cfg[active],form=get('plQuickForm'),btn=get('plQuickSubmitBtn');
+    if(!cfgItem||cfgItem.external||complete)return;
+    const details=get('plQuickUrl').value.trim(),email=get('plQuickEmail').value.trim();
+    const qty=Number(get('plQuickQty').value||1),variant=get('plQuickVariant').value.trim();
+    const amount=get('plQuickAmount').value.trim(),deadline=get('plQuickDeadline').value;
+    const route=get('plQuickRoute').value;
+    try{
+      if(!details)throw new Error('請先填寫官方商品、商家或包裹來源資訊');
+      if(['direct_order','proxy_purchase'].includes(active)&&!/^https?:\/\/\S+/i.test(details))throw new Error('請填寫以 https:// 開頭的完整商品網址');
+      if(!email||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))throw new Error('請確認聯絡 Email 格式');
+      if(get('plQuickEmailHint').textContent)throw new Error('Email 網域可能拼錯，請先修正後再送出');
+      if(!Number.isInteger(qty)||qty<1||qty>99)throw new Error('數量需在 1～99 之間');
+      if(amount&&(!Number.isFinite(Number(amount))||Number(amount)<0))throw new Error('請確認日幣金額');
+      if(!window.PL_STATIC_HOSTED||typeof window.plGithubRpc!=='function')throw new Error('網站安全服務暫時未連線，請稍後重試或透過官方 LINE 聯絡');
+      btn.disabled=true;btn.textContent='正在送出…';message('');
+      const note=['[首頁服務卡片]', '服務：'+cfgItem.title, amount?'日幣金額：¥'+amount:'',deadline?'付款期限：'+deadline:'',active==='forwarding'?'期望運送方式：'+route:'',get('plQuickNote').value.trim()].filter(Boolean).join('\n');
+      const res=await window.plGithubRpc('plStoreSubmitDirectOrderInquiry',[{serviceType:cfgItem.service,email,urls:details,variant,quantity:qty,note}]);
+      if(!res||!res.ok)throw new Error((res&&res.message)||'目前無法送出，請稍後再試');
+      complete=true;btn.textContent='詢價已送出';
+      message('詢價已送出，編號：'+(res.inquiryNumber||'請至 Email 確認')+'。PL 確認後會再回覆；目前尚未成立訂單。','ok');
+    }catch(err){message(err.message||'詢價送出失敗');}
+    finally{btn.disabled=complete; if(!complete)btn.textContent='送出服務詢價 →';}
+  };
+  document.addEventListener('keydown',function(event){if(event.key==='Escape'&&get('plQuickModal')&&!get('plQuickModal').hidden)window.plCloseQuickService()});
+})();
 </script>
 <!-- v9.48.18: third-party X widget is not auto-loaded; official source links remain accessible. -->
 <a id="plOwnerMobileShortcut" href="/petite-lueur-pl/admin/" aria-label="開啟主購手機工作台">📱 主購工作台</a>
