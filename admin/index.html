@@ -144,7 +144,7 @@
     rows.slice(0,80).forEach(r=>createItem(host,r,keys));
   }
   function updateMetrics(){
-    const pending=state.orders.filter(r=>/待|未|pending|unpaid/i.test(textOf(r,['paymentStatus','status'])));
+    const pending=state.orders.filter(r=>!/(申請已撤回|已取消|已退款|已完成|完成出貨)/.test(String(r.status||''))&&/(尚未通知付款|待第一階段付款|付款資料已提交|等待第二次付款|第二階段付款資料已提交|訂購申請待確認|商品款待確認|pending|unpaid)/i.test(String(r.paymentStatus||'')+' '+String(r.status||'')));
     const now=Date.now(),soon=state.campaigns.filter(r=>{const d=dateOf(r);return d&&d.getTime()>now&&d.getTime()<=now+7*86400000;});
     const overdue=state.campaigns.filter(r=>{const d=dateOf(r);return d&&d.getTime()<now&&!/結束|已完成|流團|取消/.test(textOf(r,['status']));});
     const ended=state.campaigns.filter(r=>/結束|完成|流團|取消/.test(textOf(r,['status'])));
@@ -309,7 +309,7 @@
     const originalStatus=Array.isArray(p.statuses)&&p.statuses.length?String(p.statuses[0]):String(p.status||'');
     const stateChoices=[[originalStatus||'','目前：'+(originalStatus||'未設定')],...statuses.filter(s=>s!==originalStatus).map(s=>[s,s])];
     const status=choiceBox(grid,'商品狀態',stateChoices,originalStatus);
-    const price=fieldBox(grid,'台幣售價（NT$）','number',p.priceTwd??'');
+    const price=fieldBox(grid,'台幣售價（NT$）','number',p.price??'');
     const published=checkboxBox(host,'公開上架（取消勾選即可下架）',p.published===true);
     const warning=document.createElement('p');warning.className='status warn';
     warning.textContent='公開上架前請確認採購條件、原始官方商品圖、商品規格與運送限制。下架會影響客人可見狀態；此操作不會寄信。';host.append(warning);
@@ -318,7 +318,7 @@
     save.addEventListener('click',async()=>{
       const fields={},newStatus=status.value,rawPrice=price.value.trim();
       if(newStatus!==originalStatus){if(!statuses.includes(newStatus)){note.textContent='請先選擇有效的商品狀態。';return;}fields.status=newStatus;}
-      if(rawPrice!==String(p.priceTwd??'')){
+      if(rawPrice!==String(p.price??'')){
         const n=Number(rawPrice);if(rawPrice===''||!Number.isInteger(n)||n<0||n>10000000){note.textContent='商品台幣售價須為 0 以上整數。';return;}
         fields.priceTwd=n;
       }
