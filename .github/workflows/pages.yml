@@ -2,6 +2,9 @@ name: Deploy PL official branded site to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # Off-hour times reduce GitHub's scheduled-workflow congestion.
+    - cron: '13,43 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -23,6 +26,8 @@ jobs:
       - name: Checkout approved public frontend
         uses: actions/checkout@v4
       - name: Build approved public storefront
+        env:
+          PL_REFRESH_CATALOG: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: node tools/prepare-preview.mjs
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
