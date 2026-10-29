@@ -17,9 +17,27 @@ const payloadPattern = /(<div\b[^>]*\bid="plInitialStoreData"[^>]*\bdata-payload
 const payload = html.match(payloadPattern);
 if (!payload) throw new Error('Approved public catalog snapshot is missing');
 const previous = JSON.parse(Buffer.from(payload[2], 'base64url').toString('utf8'));
-const data = process.env.PL_REFRESH_CATALOG === 'true'
-  ? await getLiveApprovedCatalog(previous.products?.length || 0)
-  : approvedPublicCatalog(previous);
+const approvedSnapshot = approvedPublicCatalog(previous);
+let data = approvedSnapshot;
+if (process.env.PL_REFRESH_CATALOG === 'true') {
+  try {
+    const fresh = await getLiveApprovedCatalog(approvedSnapshot.products.length);
+    // A sudden partial group is an unsafe cache regression, not an instruction
+    // to silently unpublish otherwise approved SKUs.
+    const countAikatsu = items => items.filter(p => p.campaignCode === 'PL-AIKATSU-261031').length;
+    const before = countAikatsu(approvedSnapshot.products);
+    const after = countAikatsu(fresh.products);
+    if (before >= 90 && after < before) {
+      throw new Error('Partial Aikatsu catalog in live export: ' + after + '/' + before);
+    }
+    data = fresh;
+  } catch (error) {
+    // Keep the already approved, field-whitelisted snapshot on transient GAS
+    // export failures; do not publish an empty catalog or private data.
+    console.warn('PL approved catalog refresh unavailable; preserving existing snapshot:', error.message);
+    data = { ...approvedSnapshot, sourceMode: 'approved-snapshot-fallback', cacheHit: true };
+  }
+}
 if (data.siteSettings) {
   data.siteSettings.canonicalUrl = origin + '/petite-lueur-pl/';
 }
