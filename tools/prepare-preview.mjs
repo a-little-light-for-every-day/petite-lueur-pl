@@ -24,7 +24,16 @@ const guard=`<style>
 <a href="${oldStore}" target="_blank" rel="noopener noreferrer">交易請使用原正式網站</a></div>
 <script>
 window.PL_STATIC_PREVIEW_ONLY=true;
-window.plGithubRpc=function(){return Promise.reject(new Error('新網站仍在驗收，請先使用原正式商店'))};
+// Allow public read methods through the real GAS bridge during verification.
+window.addEventListener('DOMContentLoaded',function(){
+  const rpc=window.plGithubRpc;
+  if(typeof rpc!=='function')return;
+  const reads=new Set(['plStoreBootstrap','plStoreLoadEnhancements','plStoreListPublicSplitGroups','plGetShoppingGuide']);
+  window.plGithubRpc=function(name,args){
+    if(!reads.has(name))return Promise.reject(new Error('新網站尚在驗收，請使用原正式商店進行交易'));
+    return rpc(name,args);
+  };
+},{once:true});
 document.addEventListener('click',function(e){
  const target=e.target.closest && e.target.closest('button');
  if(!target)return;
