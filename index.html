@@ -1211,7 +1211,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         <button class="plModeTab" data-mode="formal" type="button" role="tab" aria-selected="false" onclick="setStoreMode('formal')">正式商店</button>
       </div>
       <div id="plModeHint" class="plModeHint">點選來源可查看官方商品照片；代購可行性確認前不收款。</div>
-      <div id="plSplitEntry" class="plSplitEntry hidden" aria-live="polite">
+      <div id="plSplitEntry" class="plSplitEntry" aria-live="polite">
         <div><strong>📦 拆團進度</strong><small id="plSplitEntryText">開放中的拆團，可以查看各角色剩餘名額。</small></div>
         <button type="button" onclick="plOpenSplitProgress()">查看拆團進度 →</button>
       </div>
@@ -2599,8 +2599,8 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }
   function plSplitRenderEntry(){
     const box=$('plSplitEntry');if(!box)return;
-    box.classList.toggle('hidden',plSplitGroups.length===0);
-    if(plSplitGroups.length)$('plSplitEntryText').textContent='目前有 '+plSplitGroups.length+' 團開放拆團，查看角色認領與剩餘名額。';
+    box.classList.remove('hidden');
+    $('plSplitEntryText').textContent=plSplitGroups.length?'目前有 '+plSplitGroups.length+' 團開放拆團，查看角色認領與剩餘名額。':'點擊更新拆團角色認領與剩餘名額。';
   }
   async function plSplitRefresh(){
     if(plSplitLoading)return;
@@ -2636,9 +2636,10 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       '<div style="margin-top:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="plSplitRefresh" type="button" onclick="plSplitRefresh()">↻ 重新整理</button><span class="meta">進度時間：'+(plSplitLastRefresh?esc(new Date(plSplitLastRefresh).toLocaleString('zh-TW')):'待更新')+'</span></div>';
   }
   function plOpenSplitProgress(){
-    if(!plSplitGroups.length)return;
     $('plSplitOverlay').classList.remove('hidden');document.body.style.overflow='hidden';
-    plSplitRenderTable();plSplitRefresh();
+    if(!plSplitGroups.length)$('plSplitProgressBody').textContent='正在更新拆團進度…';
+    else plSplitRenderTable();
+    plSplitRefresh();
   }
   function plCloseSplitProgress(){
     $('plSplitOverlay').classList.add('hidden');document.body.style.overflow='';
