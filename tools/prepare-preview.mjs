@@ -55,6 +55,18 @@ if (!html.includes(shortEnhancementTimeout) || !html.includes(shortTransportTime
 html = html.replace(shortEnhancementTimeout, "new Promise((_,reject)=>setTimeout(()=>reject(new Error('enhancement timeout')),90000))");
 html = html.replace(shortTransportTimeout, "reject(new Error('服務連線逾時，請稍後重試'));},110000)");
 
+// Keep the Shopping Guide useful even when the read-only GAS guide endpoint is slow.
+// This is a build-only, narrow replacement: the original 864 KB store source remains untouched.
+const plGuideStart = '  function loadShoppingGuide(){';
+const plGuideEnd = '\n\n\n  function setGuideMode(mode){';
+const plGuideBeginIndex = html.indexOf(plGuideStart);
+const plGuideEndIndex = html.indexOf(plGuideEnd, plGuideBeginIndex);
+if (plGuideBeginIndex < 0 || plGuideEndIndex < 0 || html.indexOf(plGuideStart, plGuideBeginIndex + 1) >= 0 || !html.slice(plGuideBeginIndex,plGuideEndIndex).includes("call('plGetShoppingGuide').then(data=>{")) {
+  throw new Error('Shopping Guide source changed; audit before publishing');
+}
+const plGuideReplacement = "  let plGuideRequestSequence=0;\n  function plGuideBasicNotice(host, waiting){\n    if(!host)return;\n    host.innerHTML=\n      '<p class=\"guideRuleLead\"><strong>購物須知｜基本提醒</strong><br>完整條款正在向 PL 官方系統確認中；以下僅供先行閱讀，正式內容以主購確認及當次通知為準。</p>'+\n      '<div class=\"guideExample\"><strong>① 訂購申請：</strong>送出後仍須由主購確認商品、規格、數量及能否接單，不代表已正式購買。</div>'+\n      '<div class=\"guideExample\"><strong>② 付款與費用：</strong>請依當次付款通知及私訊提供的收款資料付款；日本國際運費、包材及必要稅費依實際情況於後續結算。</div>'+\n      '<div class=\"guideExample\"><strong>③ 出貨：</strong>日本官方下單、入庫、國際運送與台灣配送依訂單進度辦理；可到網站使用 Email 驗證查單。</div>'+\n      (waiting\n        ? '<p class=\"guideRuleLead\">最新完整版仍在背景載入；連線成功會自動顯示。</p>'\n        : '<p class=\"guideRuleLead\">目前無法取得最新完整版，請先切換「購物流程」閱讀，或向 PL 官方 LINE 確認當次規則。</p><button type=\"button\" class=\"legacyPrimary\" onclick=\"loadShoppingGuide()\">重新載入完整購物須知</button>');\n  }\n  function loadShoppingGuide(){\n    if(window.PL_OFFLINE_PREVIEW){\n      const host=$('guideRulesDynamic');\n      if(host)host.innerHTML='<p class=\"guideRuleLead\">這是離線網頁預覽。完整購物須知請以正式商店為準。</p>';\n      shoppingGuideLoaded=true;\n      return;\n    }\n    if(shoppingGuideLoaded||shoppingGuideLoading)return;\n    shoppingGuideLoading=true;\n    const sequence=++plGuideRequestSequence;\n    const host=$('guideRulesDynamic');\n    plGuideBasicNotice(host,true);\n    const slowTimer=setTimeout(()=>{\n      if(sequence!==plGuideRequestSequence||shoppingGuideLoaded)return;\n      shoppingGuideLoading=false;\n      plGuideBasicNotice(host,false);\n    },12000);\n    call('plGetShoppingGuide').then(data=>{\n      clearTimeout(slowTimer);\n      if(sequence!==plGuideRequestSequence)return;\n      shoppingGuideLoading=false;\n      if(!data||!data.ok||typeof data.html!=='string'||!data.html.trim()){\n        plGuideBasicNotice(host,false);\n        return;\n      }\n      shoppingGuideLoaded=true;\n      if(host){\n        host.innerHTML=data.html;\n        host.querySelectorAll('.noticeStrip').forEach(node=>{\n          const label=node.querySelector('b');\n          if(label&&/^目前版本[：:]/.test(label.textContent.trim()))node.remove();\n        });\n      }\n    }).catch(()=>{\n      clearTimeout(slowTimer);\n      if(sequence!==plGuideRequestSequence)return;\n      shoppingGuideLoading=false;\n      plGuideBasicNotice(host,false);\n    });\n  }";
+html = html.slice(0, plGuideBeginIndex) + plGuideReplacement + html.slice(plGuideEndIndex);
+
 // The actual customer actions use the origin-restricted Apps Script bridge.
 // The existing customer-facing layout is unchanged, including email OTP lookup.
 html = html.replace('<body>', '<body data-pl-public-site="live">');
@@ -62,7 +74,7 @@ fs.mkdirSync('dist', { recursive: true });
 fs.writeFileSync('dist/index.html', html);
 // Publish only brand-approved social preview and logo assets.
 fs.mkdirSync('dist/assets', { recursive: true });
-for (const asset of ['pl-social-preview-20261030.jpg', 'pl-logo.jpg']) {
+for (const asset of ['pl-social-preview-20261030.jpg', 'pl-social-preview-20261030.png', 'pl-logo.jpg']) {
   fs.copyFileSync('assets/' + asset, 'dist/assets/' + asset);
 }
 
