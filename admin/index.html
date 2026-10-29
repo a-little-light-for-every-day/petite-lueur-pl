@@ -493,11 +493,11 @@
     ];
     area.textContent='正在檢查商品、團次與詢價管理接口…';area.className='status warn';
     const results=await Promise.all(tests.map(async([action,payload,expected])=>{
-      try{await rpc(action,[payload]);return false;}
-      catch(e){return String(e.message||'').includes(expected);}
+      try{await rpc(action,[payload]);return {action,ok:false,reason:'無效請求不應成功'};}
+      catch(e){const reason=String(e.message||'');return {action,ok:reason.includes(expected),reason};}
     }));
-    const ready=results.every(Boolean);
-    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價、履約四項安全驗證通過（未修改任何資料）。':'管理寫入接口未完全就緒；請勿使用新頁面的寫入功能，先使用原工作台。';
+    const ready=results.every(x=>x.ok);
+    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價、履約四項安全驗證通過（未修改任何資料）。':'管理寫入接口尚有問題：'+results.filter(x=>!x.ok).map(x=>x.action+'：'+x.reason).join('；')+'。請先使用原工作台。';
     area.className='status '+(ready?'ok':'bad');
   }
   function openDashboard(data){
