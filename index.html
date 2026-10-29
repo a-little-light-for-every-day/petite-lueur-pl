@@ -1394,10 +1394,12 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         <div id="paymentOrderInfo" class="noticeStrip"></div>
         <div class="meta" style="margin:8px 0 14px">請依照銀行實際匯出的資料填寫。若未回報，主購可能無法辨認這筆入帳屬於哪張訂單。</div>
         <input id="paymentOrderId" type="hidden"><input id="paymentOrderNumber" type="hidden"><input id="paymentStage" type="hidden">
-        <div class="field"><label>付款人姓名</label><input id="paymentPayerName" placeholder="請填匯款帳戶姓名"></div>
+        <div class="field"><label for="paymentMethod">付款方式</label><select id="paymentMethod" onchange="updatePaymentMethodHint()"></select></div>
+        <div class="meta" id="paymentMethodHint" style="margin:-3px 0 12px">請選擇本次實際使用的付款方式。</div>
+        <div class="field"><label>付款人姓名</label><input id="paymentPayerName" placeholder="請填實際付款人姓名"></div>
         <div class="field"><label>匯款日期</label><input id="paymentDate" type="date"></div>
         <div class="field"><label>匯款金額</label><input id="paymentAmount" type="number" min="1" placeholder="NT$"></div>
-        <div class="field"><label>帳號末五碼</label><input id="paymentLastFive" inputmode="numeric" maxlength="5" placeholder="12345"></div>
+        <div class="field"><label id="paymentLastFiveLabel">付款交易識別資訊（至少五字）</label><input id="paymentLastFive" maxlength="40" placeholder="交易編號末五碼或可辨識資訊"></div>
         <button id="paymentSubmitBtn" class="legacyPrimary fullBtn" type="button" onclick="submitPaymentReport()">送出付款回報</button>
         <div id="paymentMsg"></div>
       </div>
@@ -3533,36 +3535,33 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function paymentFallbackBox(o){
     const info=o&&o.paymentInfo;
     if(!info)return '';
-    const deadline=info.deadline?publicTimeLabel(info.deadline):'未設定';
+    const deadline=info.deadline?publicTimeLabel(info.deadline):'請以主購當次通知為準';
     if(info.expired){
       return `<div class="noticeStrip" style="margin-top:10px;background:#fff3f0;border-color:#efd3cb">
         <b>⚠️ 此次代下單報價已逾期</b><br>
-        <span class="meta">請先不要依舊金額付款。Petite Lueur PL 需要重新確認日圓匯率、商品庫存與最終金額後，才會重新通知付款。</span>
+        <span class="meta">請先不要依舊金額付款。Petite Lueur PL 需要重新確認商品庫存、報價與最終金額後，才會重新通知付款。</span>
       </div>`;
     }
-    if(!info.bank){
-      return `<div class="noticeStrip" style="margin-top:10px"><b>${esc(info.label||'付款')}</b><br><span class="meta">付款通知已成立，但網站目前無法載入銀行資料，請稍後再試或聯絡 Petite Lueur PL。</span></div>`;
-    }
-    const b=info.bank;
+    const methods=[];
+    if(info.linePayMoneyEnabled)methods.push('LINE Pay Money');
+    if(info.taiwanPayEnabled)methods.push('台灣 Pay（合庫 TWQR）');
+    if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
+    const methodText=methods.length?methods.join('／'):'請私訊確認當次可用方式';
     return `<div class="noticeStrip" style="margin-top:10px;background:#fffaf4;border-color:#ead9c7">
-      <b>💳 ${esc(info.label||'付款')}｜Email 沒看到也可以直接在這裡付款</b>
+      <b>💳 ${esc(info.label||'付款')}｜請私訊索取當次收款資料</b>
       <div class="meta" style="margin-top:6px">應付金額：<b>${money(info.amount||0)}</b>｜付款期限：${esc(deadline)}</div>
-      <div class="meta" style="margin-top:8px;line-height:1.9">
-        銀行：${esc(b.bankName||'')}（${esc(b.bankCode||'')}）<br>
-        ${b.branchName?`分行：${esc(b.branchName)}<br>`:''}
-        戶名：${esc(b.accountName||'')}<br>
-        帳號：<b>${esc(b.accountNumber||'')}</b>
-        <button class="softbtn" type="button" style="margin-left:7px;padding:4px 8px" onclick="copyPublicPaymentAccount('${esc(b.accountNumber||'')}',this)">複製帳號</button>
-      </div>
-      <div class="meta" style="margin-top:7px">匯款完成後，請按下方「回報付款」。這裡的付款資料與 Email 通知相同，因此不用等信件重寄才可以處理。</div>
+      <div class="meta" style="margin-top:7px">當次付款方式：${esc(methodText)}</div>
+      <div class="meta" style="margin-top:7px;line-height:1.8">網站不公開銀行帳號或固定收款 QR。請透過 <a href="https://lin.ee/tNbm2RO" target="_blank" rel="noopener noreferrer">PL 官方 LINE（@596hlhko）</a> 提供訂單編號，私訊索取本次有效的收款資料；請勿沿用舊帳號或過期 QR。</div>
+      <div class="meta" style="margin-top:7px">完成付款後，請點選下方「回報付款」並選擇實際使用的付款方式。PL 將依實際入帳人工核對。</div>
     </div>`;
   }
 
-
+  let lookupPaymentInfoByOrder={};
   function renderOrders(orders){
-    const box=$('orders');box.innerHTML='';
+    const box=$('orders');box.innerHTML='';lookupPaymentInfoByOrder={};
     if(!orders.length){box.innerHTML='<div class="empty">目前查不到訂單。</div>';return}
     orders.forEach(o=>{
+      lookupPaymentInfoByOrder[String(o.orderNumber||'')]=o.paymentInfo||{};
       const canFirst=o.paymentStatus==='待第一階段付款';
       const canSecond=o.paymentStatus==='等待第二次付款';
       const payAmount=canSecond?Number(o.secondPayment||0):Number(o.itemSubtotal||0);
@@ -3586,13 +3585,34 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }
 
 
+  function updatePaymentMethodHint(){
+    const method=$('paymentMethod').value;
+    const map={
+      'LINE Pay Money':'請填 LINE Pay Money 交易識別資訊的末五碼。',
+      '台灣 Pay':'請填台灣 Pay 交易識別資訊的末五碼。',
+      '中國信託無卡存款':'請填無卡存款交易序號末五碼，或至少五字的人工核對資訊。'
+    };
+    $('paymentLastFiveLabel').textContent=method==='中國信託無卡存款'?'存款交易序號／辨識資訊':'轉帳交易識別資訊末五碼';
+    $('paymentMethodHint').textContent=map[method]||'請先與 PL 確認付款方式及當次有效的收款資料。';
+  }
   function openPaymentReport(id,orderNumber,stage,amount){
     if(!lookupToken){alert('查詢驗證已過期，請重新驗證 Email');return}
+    const info=lookupPaymentInfoByOrder[String(orderNumber||'')]||{};
+    const methods=[];
+    if(info.linePayMoneyEnabled)methods.push('LINE Pay Money');
+    if(info.taiwanPayEnabled)methods.push('台灣 Pay');
+    if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
+    $('paymentMethod').innerHTML=methods.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    $('paymentMethod').disabled=!methods.length;
+    $('paymentSubmitBtn').disabled=!methods.length;
     $('paymentOrderId').value=id||'';$('paymentOrderNumber').value=orderNumber||'';$('paymentStage').value=stage||'FIRST';
-    $('paymentAmount').value=amount||'';$('paymentDate').value=new Date().toISOString().slice(0,10);
+    $('paymentAmount').value=amount||'';
+    $('paymentDate').value=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
     $('paymentPayerName').value='';$('paymentLastFive').value='';
     $('paymentOrderInfo').innerHTML=`<b>${esc(orderNumber)}</b><br>${stage==='SECOND'?'第二階段付款':'第一階段付款'}${amount?`｜應付 ${money(amount)}`:''}`;
-    msg('paymentMsg','');$('paymentOverlay').classList.remove('hidden');document.body.style.overflow='hidden'
+    msg('paymentMsg',methods.length?'':'目前沒有已開放的線上付款回報方式，請先私訊 PL 確認。',methods.length?'':'bad');
+    updatePaymentMethodHint();
+    $('paymentOverlay').classList.remove('hidden');document.body.style.overflow='hidden';
   }
   function closePaymentReport(){$('paymentOverlay').classList.add('hidden');document.body.style.overflow=''}
   function paymentOverlayClose(e){if(e.target===$('paymentOverlay'))closePaymentReport()}
@@ -3600,7 +3620,9 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const btn=$('paymentSubmitBtn');msg('paymentMsg','');
     try{
       if(!lookupToken)throw new Error('查詢驗證已過期，請重新驗證 Email');
+      if(!$('paymentMethod').value)throw new Error('請先選擇當次可用的付款方式');
       const payload={id:$('paymentOrderId').value,orderNumber:$('paymentOrderNumber').value,stage:$('paymentStage').value,
+        paymentMethod:$('paymentMethod').value,
         payerName:$('paymentPayerName').value.trim(),paymentDate:$('paymentDate').value,
         paymentAmount:Number($('paymentAmount').value||0),paymentLastFive:$('paymentLastFive').value.trim()};
       btn.disabled=true;btn.textContent='送出中…';
