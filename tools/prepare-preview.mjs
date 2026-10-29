@@ -60,6 +60,12 @@ html = html.replace(shortTransportTimeout, "reject(new Error('服務連線逾時
 html = html.replace('<body>', '<body data-pl-public-site="live">');
 fs.mkdirSync('dist', { recursive: true });
 fs.writeFileSync('dist/index.html', html);
+// Publish only brand-approved social preview and logo assets.
+fs.mkdirSync('dist/assets', { recursive: true });
+for (const asset of ['pl-social-preview-20261030.jpg', 'pl-logo.jpg']) {
+  fs.copyFileSync('assets/' + asset, 'dist/assets/' + asset);
+}
+
 // The owner UI is static only. All privileged data stays behind the GAS OTP bridge.
 const adminHtml = fs.readFileSync('admin/index.html', 'utf8');
 if (!adminHtml.includes('PL_GAS_ADMIN_CALL') || /BRIDGE_SECRET|NOTION_API_TOKEN/.test(adminHtml)) {
