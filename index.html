@@ -3719,7 +3719,7 @@ function plOpenQuickService(type){
 }
 </script>
 <!-- v9.48.18: third-party X widget is not auto-loaded; official source links remain accessible. -->
-<a id="plOwnerMobileShortcut" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?ops=1" aria-label="開啟主購手機工作台">📱 主購工作台</a>
+<a id="plOwnerMobileShortcut" href="/petite-lueur-pl/admin/" aria-label="開啟主購手機工作台">📱 主購工作台</a>
 
 
 <script>
@@ -3735,8 +3735,7 @@ function plOpenQuickService(type){
       if(!a)return;
       const enabled=localStorage.getItem('pl_owner_shortcut')==='1';
       a.classList.toggle('pl-owner-visible',enabled);
-      const mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||innerWidth<=900;
-      a.href='https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?'+(mobile?'ops=1':'admin=1');
+      a.href='/petite-lueur-pl/admin/';
       a.title='開啟受 Email 驗證保護的主購工作台';
     }catch(e){}
   }
