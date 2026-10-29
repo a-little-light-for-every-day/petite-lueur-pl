@@ -76,7 +76,7 @@
             <div class="card"><h2>🗂️ 歷史紀錄</h2><div id="historyList" class="list"><p class="tiny">載入中</p></div></div>
           </div>
         </div>
-        <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div></div>
+        <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div></div>
         <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div></div>
         <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；寫入操作尚保留於原工作台，避免資料雙寫。</p><div id="fulfillList" class="list"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
@@ -156,7 +156,36 @@
     paintList('historyList',ended.slice(0,8),['name','title','code'],'目前沒有已結束團次');
     label('dataFreshness','管理資料更新：'+new Date().toLocaleString('zh-TW'));
   }
-  function renderOrders(){const q=el('orderSearch').value.trim().toLocaleLowerCase();paintList('ordersList',state.orders.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q)),['orderNo','orderNumber','code','customerName'],'未找到符合的訂單');}
+  function showOrderDetail(r){
+    const box=el('orderDetail');box.replaceChildren();box.classList.remove('hidden');
+    const h=document.createElement('h2');h.textContent='訂單詳情｜'+textOf(r,['orderNumber','orderNo']);box.append(h);
+    const tip=document.createElement('p');tip.className='status warn';tip.textContent='此頁僅供主購核對資料。銀行實際入帳、付款確認與正式通知仍需人工審核。';box.append(tip);
+    const amount=v=>Number(v)>0?'NT$'+fmt(v):'未記錄／待核對（0 不視為已確認）';
+    const rows=[
+      ['客戶',r.customerName],['Email',r.email],['社群',[(r.socialPlatform||''),(r.socialNickname||'')].filter(Boolean).join(' · ')],
+      ['訂單類型',r.orderType],['訂單狀態',r.status],['付款狀態',r.paymentStatus],['商品明細',r.itemDetail||r.structuredItemDetail],
+      ['商品款',amount(r.itemSubtotal)],['匯款回報金額',amount(r.paymentReportAmount)],['回報日期',r.paymentDate],
+      ['第一階段付款期限',r.firstDeadline],['第二次付款',amount(r.secondPayment)],['二補期限',r.secondDeadline],
+      ['配送方式',r.deliveryMethod],['物流單號',r.trackingNumber],['通知狀態',r.notificationStatus]
+    ];
+    rows.forEach(([name,val])=>{
+      const item=document.createElement('div');item.className='item';
+      const k=document.createElement('strong');k.textContent=name;
+      const v=document.createElement('span');v.textContent=String(val||'尚未記錄');v.style.overflowWrap='anywhere';
+      item.append(k,v);box.append(item);
+    });
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  function renderOrders(){
+    const q=el('orderSearch').value.trim().toLocaleLowerCase();
+    const rows=state.orders.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q));
+    paintList('ordersList',rows,['orderNo','orderNumber','code','customerName'],'未找到符合的訂單');
+    el('orderDetail').classList.add('hidden');
+    [...el('ordersList').querySelectorAll('.item')].forEach((item,i)=>{
+      const r=rows[i];if(!r)return;
+      const b=document.createElement('button');b.className='btn';b.type='button';b.textContent='查看詳情';b.addEventListener('click',()=>showOrderDetail(r));item.append(b);
+    });
+  }
   function renderCatalog(){const q=el('catalogSearch').value.trim().toLocaleLowerCase(),rows=state.catalogMode==='campaigns'?state.campaigns:state.products;paintList('catalogList',rows.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q)),['name','title','code'],'未找到符合的資料');}
   function renderFull(){
     if(!state.full)return;
@@ -165,7 +194,17 @@
     [['官方採購',purchases],['集運／二補',cons],['台灣出貨',shipments]].forEach(([title,rows])=>{const c=document.createElement('div');c.className='card';const h=document.createElement('h2');h.textContent=title+' · '+fmt(rows.length);c.append(h);rows.slice(0,10).forEach(r=>createItem(c,r,['name','title','code','trackingNumber']));host.append(c);});
     const finance=el('financeList');finance.replaceChildren();
     const records=state.full.financeRecords||[];
-    const note=document.createElement('p');note.className='status warn';note.textContent='財務資料共 '+fmt(records.length)+' 筆。實際金額仍需核對帳單，不以未填金額當作零。';finance.append(note);
+    const note=document.createElement('p');note.className='status warn';note.textContent='財務資料共 '+fmt(records.length)+' 筆。未填金額與未知成本絕不當作 NT$0 或直接推算利潤。';finance.append(note);
+    const money=(v,known)=>known===true?'NT$'+fmt(v):'未確認';
+    records.slice().sort((a,b)=>String(b.date||b.createdTime||'').localeCompare(String(a.date||a.createdTime||''))).forEach(r=>{
+      const c=document.createElement('div');c.className='item';c.style.display='block';
+      const title=document.createElement('strong');title.textContent=String(r.name||'未命名流水');
+      const meta=document.createElement('small');meta.style.display='block';
+      meta.textContent=[r.date,r.direction,r.serviceType,r.paymentMethod].filter(Boolean).join(' · ');
+      const values=document.createElement('div');values.className='tiny';values.style.lineHeight='1.9';
+      values.textContent='實際支出 '+money(r.actualTwd,r.actualTwdKnown)+'　｜　客人實收 '+money(r.customerReceived,r.customerReceivedKnown)+'　｜　利潤 '+money(r.profit,r.profitKnown);
+      c.append(title,meta,values);finance.append(c);
+    });
   }
   function openDashboard(data){
     if(!data||data.ok!==true)throw new Error('主購身分未通過');
@@ -176,7 +215,7 @@
     rpc('operationsCore').then(res=>{
       if(!res||res.ok===false)throw new Error(res&&res.message||'讀取失敗');
       state.orders=Array.isArray(res.orders)?res.orders:[];state.wishes=Array.isArray(res.wishes)?res.wishes:[];state.coreLoaded=true;
-      updateMetrics();renderOrders();renderCatalog();
+      updateMetrics();renderOrders();renderCatalog();paintList('wishesList',state.wishes,['title','wishNumber'],'目前沒有詢價與許願紀錄');
       const notice=el('loadNotice');notice.textContent='已載入訂單 '+state.orders.length+' 筆、團次 '+state.campaigns.length+' 組、商品 '+state.products.length+' 件；付款仍需人工核帳。';notice.className='status ok';
     }).catch(err=>{const n=el('loadNotice');n.textContent='訂單資料載入失敗：'+err.message+'。請勿將空白誤認為沒有訂單。';n.className='status bad';});
   }
