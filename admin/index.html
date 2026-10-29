@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Petite Lueur PL｜主購管理</title>
+  <style>
+    :root{color-scheme:light;--bg:#f5f0eb;--paper:#fffcf8;--rose:#a87783;--roseDark:#7c505c;--ink:#493c3c;--muted:#847574;--line:#e7d9d5;--ok:#386b59;--warn:#95682c;--bad:#a34452}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Noto Sans TC","PingFang TC",sans-serif}
+    button,input,select{font:inherit}button{cursor:pointer}a{color:var(--roseDark)}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #c293a3;outline-offset:3px}
+    .page{max-width:1250px;margin:auto;padding:20px 20px 100px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 0 20px}
+    .brand{font-family:Georgia,serif;font-size:28px;line-height:1.15;color:var(--roseDark)}.eyebrow{font-size:11px;letter-spacing:.22em;color:var(--rose)}
+    .tiny{font-size:12px;color:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{border:1px solid var(--line);border-radius:14px;padding:11px 15px;background:#fff;color:var(--ink);font-weight:700;min-height:44px}
+    .btn.primary{background:var(--roseDark);border-color:var(--roseDark);color:#fff}.btn:disabled{opacity:.5;cursor:wait}
+    .card{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 8px 26px #614b480a}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start}
+    .sidebar{position:sticky;top:12px;display:flex;flex-direction:column;gap:5px}.nav{width:100%;border:0;background:transparent;padding:12px 14px;border-radius:12px;text-align:left;color:var(--muted);font-weight:700}
+    .nav.active{background:#f1e5e5;color:var(--roseDark)}.nav:hover{background:#f6ebeb}
+    h1{font:normal 33px Georgia,"Noto Serif TC",serif;margin:4px 0 9px}h2{font-size:20px;margin:0 0 10px}h3{font-size:16px;margin:0 0 7px}
+    .lead{color:var(--muted);line-height:1.7;margin:0 0 20px}.metric{min-height:115px}.metric .number{font-size:31px;font-weight:800;display:block;margin-top:12px;color:var(--roseDark)}
+    .stack{display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.search{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px;background:#fff;min-height:44px}
+    .status{border-radius:12px;padding:12px 14px;background:#efe5e0;font-size:13px;line-height:1.6}.status.ok{background:#e6f0e9;color:var(--ok)}.status.bad{background:#fae8e8;color:var(--bad)}.status.warn{background:#fff3db;color:var(--warn)}
+    .list{display:grid;gap:8px}.item{border:1px solid var(--line);border-radius:14px;padding:13px;background:#fff;display:flex;justify-content:space-between;gap:12px;align-items:start}
+    .item b{display:block;font-size:14px}.item small{color:var(--muted);line-height:1.6;display:block;margin-top:4px}.pill{font-size:12px;background:#f5eeee;border-radius:99px;padding:5px 8px;white-space:nowrap}
+    .section{display:none}.section.active{display:block}.tag{font-size:11px;border-radius:5px;background:#eee0df;padding:3px 7px;color:#815760}
+    .login{max-width:550px;margin:5vh auto}.login input{font-size:18px;letter-spacing:.05em}.privacy{font-size:12px;color:var(--muted);line-height:1.65}
+    .mobileDock{display:none}.hidden{display:none!important}
+    @media(max-width:950px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.layout{grid-template-columns:1fr}.sidebar{position:static;flex-direction:row;flex-wrap:wrap}.nav{width:auto}.page{padding:12px 12px 100px}}
+    @media(max-width:650px){.top{align-items:flex-start}.brand{font-size:22px}.card{padding:15px;border-radius:18px}.grid{gap:9px}.metric{min-height:100px}.metric .number{font-size:25px}.sidebar{display:none}.mobileDock{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fffdfb;border-top:1px solid var(--line);z-index:5;justify-content:space-around;padding:7px 4px max(7px,env(safe-area-inset-bottom))}.mobileDock button{border:0;background:transparent;font-size:12px;color:var(--ink);padding:8px;min-height:44px}.mobileDock button.active{color:var(--roseDark);font-weight:800}.top .actions .btn{padding:8px}.item{flex-direction:column}}
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div><div class="eyebrow">PETITE LUEUR PL · OWNER</div><div class="brand">主購管理中心</div><div class="tiny">內部管理 · 客戶不可查看</div></div>
+    <div class="actions"><a class="btn" href="../">正式商店</a><button class="btn hidden" id="logoutBtn" type="button">登出</button></div>
+  </header>
+  <section id="loginPanel" class="card login">
+    <div class="eyebrow">SECURE SIGN IN</div>
+    <h1>主購驗證</h1>
+    <p class="lead">使用原有 Apps Script 的管理驗證碼登入。客戶訂單、付款資料與管理憑證不會存放在 GitHub 靜態檔案。</p>
+    <p id="bridgeState" class="status warn" role="status">正在連接 PL 私人資料服務…</p>
+    <div class="stack">
+      <button class="btn primary" type="button" id="requestOtpBtn" disabled>寄送管理驗證碼</button>
+      <div id="verifyBox" class="stack hidden">
+        <label for="otpInput">六位數管理驗證碼</label>
+        <input class="search" id="otpInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="輸入收到的六位數驗證碼">
+        <button class="btn primary" type="button" id="verifyOtpBtn">驗證並進入</button>
+      </div>
+      <p id="loginState" class="privacy" aria-live="polite"></p>
+    </div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:24px 0">
+    <p class="privacy">如果安全服務暫時不可用，可先使用<a href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原主購工作台</a>處理正式訂單。不要重複送單或核帳。</p>
+  </section>
+  <div id="privatePanel" class="hidden">
+    <div class="layout">
+      <nav class="sidebar card" aria-label="主購工作區">
+        <button class="nav active" data-tab="dashboard">⌂ 今日總覽</button>
+        <button class="nav" data-tab="orders">▣ 客戶訂單</button>
+        <button class="nav" data-tab="campaigns">✦ 團次與商品</button>
+        <button class="nav" data-tab="fulfillment">▧ 採購與配送</button>
+        <button class="nav" data-tab="finance">◈ 財務與對帳</button>
+        <button class="nav" data-tab="system">⚙ 資料同步</button>
+      </nav>
+      <main>
+        <div class="section active" id="section-dashboard">
+          <h1>今天要做什麼？</h1><p class="lead">先處理待確認、即將截止、逾期未處理，再看歷史紀錄。</p>
+          <div id="metrics" class="grid"><div class="card">資料載入中…</div></div>
+          <div class="row" style="margin:16px 0"><button class="btn" id="refreshBtn">重新讀取資料</button><span id="dataFreshness" class="tiny"></span></div>
+          <div id="loadNotice" class="status warn">尚未載入管理資料；空白不代表沒有訂單。</div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-top:16px">
+            <div class="card"><h2>🔥 待處理訂單</h2><div id="pendingList" class="list"><p class="tiny">載入中</p></div></div>
+            <div class="card"><h2>⏳ 即將結單</h2><div id="soonList" class="list"><p class="tiny">載入中</p></div></div>
+            <div class="card"><h2>🚨 逾期追蹤</h2><div id="overdueList" class="list"><p class="tiny">載入中</p></div></div>
+            <div class="card"><h2>🗂️ 歷史紀錄</h2><div id="historyList" class="list"><p class="tiny">載入中</p></div></div>
+          </div>
+        </div>
+        <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div></div>
+        <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div></div>
+        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；寫入操作尚保留於原工作台，避免資料雙寫。</p><div id="fulfillList" class="list"></div></div>
+        <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
+        <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
+        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>目前階段：安全讀取與統一檢視</strong><div class="tiny">建立／修改、核帳、發通知仍由原工作台執行，直到逐項驗收。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
+      </main>
+    </div>
+  </div>
+</div>
+<nav class="mobileDock hidden" id="mobileDock" aria-label="手機後台導覽"><button data-tab="dashboard">待辦</button><button data-tab="orders">訂單</button><button data-tab="campaigns">商品</button><button data-tab="fulfillment">物流</button><button data-tab="finance">財務</button></nav>
+<iframe title="PL 管理安全橋接" id="gasBridge" hidden referrerpolicy="strict-origin" src="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?staticBridge=1"></iframe>
+<script>
+(function(){
+  'use strict';
+  const iframe=document.getElementById('gasBridge');
+  const state={ready:false,origin:'',seq:0,waiters:new Map(),campaigns:[],products:[],orders:[],wishes:[],full:null,active:'dashboard',catalogMode:'campaigns',coreLoaded:false};
+  const el=id=>document.getElementById(id);
+  const legacy='https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1';
+  const allowedOrigin=/^https:\/\/(?:[^/]+\.)?googleusercontent\.com$/;
+  function label(id,value){el(id).textContent=value;}
+  function message(txt,mode){const box=el('bridgeState');box.textContent=txt;box.className='status '+(mode||'warn');}
+  function rpc(action,args){
+    return new Promise((resolve,reject)=>{
+      if(!state.ready||!state.origin)return reject(new Error('安全服務未連線'));
+      const id='pladmin-'+Date.now()+'-'+(++state.seq);
+      const timer=setTimeout(()=>{state.waiters.delete(id);reject(new Error('讀取逾時，請稍後重試'))},120000);
+      state.waiters.set(id,{resolve,reject,timer});
+      iframe.contentWindow.postMessage({type:'PL_GAS_ADMIN_CALL',id,action,args:Array.isArray(args)?args:[]},state.origin);
+    });
+  }
+  window.addEventListener('message',e=>{
+    if(e.source!==iframe.contentWindow||!allowedOrigin.test(e.origin))return;
+    const d=e.data||{};
+    if(d.type==='PL_GAS_ADMIN_READY'){
+      state.ready=true;state.origin=e.origin;el('requestOtpBtn').disabled=false;
+      message('已連線，正在檢查此裝置是否保有有效的管理登入。','ok');
+      rpc('bootstrap').then(openDashboard).catch(()=>{message('已連線。請使用管理驗證碼登入。','ok');});
+      return;
+    }
+    if(d.type==='PL_GAS_ADMIN_REPLY'&&typeof d.id==='string'){
+      const p=state.waiters.get(d.id);if(!p)return;
+      clearTimeout(p.timer);state.waiters.delete(d.id);
+      if(d.ok)p.resolve(d.result);else p.reject(new Error(String(d.error||'服務暫時不可用')));
+    }
+  });
+  setTimeout(()=>{if(!state.ready)message('管理橋接尚未完成部署。正式訂單請先由原工作台處理；本頁不會建立任何資料。','warn')},18000);
+  function showPrivate(){el('loginPanel').classList.add('hidden');el('privatePanel').classList.remove('hidden');el('mobileDock').classList.remove('hidden');el('logoutBtn').classList.remove('hidden');}
+  function showLogin(){el('loginPanel').classList.remove('hidden');el('privatePanel').classList.add('hidden');el('mobileDock').classList.add('hidden');el('logoutBtn').classList.add('hidden');}
+  function fmt(value){return Number(value||0).toLocaleString('zh-TW');}
+  function dateOf(row){const v=row&&[row.deadline,row.closeAt,row.closeDate,row.endDate,row.orderDeadline,row.dueDate].find(Boolean);if(!v)return null;const d=new Date(v);return Number.isNaN(d.getTime())?null:d;}
+  function textOf(r,keys){if(!r)return '';for(const k of keys){if(r[k]!==undefined&&r[k]!==null&&String(r[k]).trim())return String(r[k]);}return '';}
+  function createItem(host,row,keys){
+    const box=document.createElement('div');box.className='item';
+    const left=document.createElement('div'),title=document.createElement('b'),meta=document.createElement('small'),badge=document.createElement('span');
+    title.textContent=textOf(row,keys)||'未命名項目';
+    meta.textContent=[textOf(row,['code','orderNo','orderNumber','number','id']),textOf(row,['status','paymentStatus','state'])].filter(Boolean).join(' · ');
+    badge.className='pill';badge.textContent=textOf(row,['status','paymentStatus','state'])||'待核對';
+    left.append(title,meta);box.append(left,badge);host.append(box);
+  }
+  function paintList(id,rows,keys,emptyText){
+    const host=el(id);host.replaceChildren();
+    if(!rows.length){const p=document.createElement('p');p.className='tiny';p.textContent=emptyText||'沒有符合項目';host.append(p);return;}
+    rows.slice(0,80).forEach(r=>createItem(host,r,keys));
+  }
+  function updateMetrics(){
+    const pending=state.orders.filter(r=>/待|未|pending|unpaid/i.test(textOf(r,['paymentStatus','status'])));
+    const now=Date.now(),soon=state.campaigns.filter(r=>{const d=dateOf(r);return d&&d.getTime()>now&&d.getTime()<=now+7*86400000;});
+    const overdue=state.campaigns.filter(r=>{const d=dateOf(r);return d&&d.getTime()<now&&!/結束|已完成|流團|取消/.test(textOf(r,['status']));});
+    const ended=state.campaigns.filter(r=>/結束|完成|流團|取消/.test(textOf(r,['status'])));
+    const metrics=[['全部訂單',state.orders.length],['待處理訂單（初步）',pending.length],['七日內結單',soon.length],['全部團次',state.campaigns.length]];
+    const host=el('metrics');host.replaceChildren();
+    metrics.forEach(m=>{const c=document.createElement('div');c.className='card metric';const s=document.createElement('span');s.className='tiny';s.textContent=m[0];const v=document.createElement('span');v.className='number';v.textContent=fmt(m[1]);c.append(s,v);host.append(c);});
+    paintList('pendingList',pending.slice(0,8),['orderNo','orderNumber','code','customerName'],'目前無符合條件的訂單（仍需人工核帳）');
+    paintList('soonList',soon.slice(0,8),['name','title','code'],'目前無七日內截止團次');
+    paintList('overdueList',overdue.slice(0,8),['name','title','code'],'目前無符合條件的逾期團次');
+    paintList('historyList',ended.slice(0,8),['name','title','code'],'目前沒有已結束團次');
+    label('dataFreshness','管理資料更新：'+new Date().toLocaleString('zh-TW'));
+  }
+  function renderOrders(){const q=el('orderSearch').value.trim().toLocaleLowerCase();paintList('ordersList',state.orders.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q)),['orderNo','orderNumber','code','customerName'],'未找到符合的訂單');}
+  function renderCatalog(){const q=el('catalogSearch').value.trim().toLocaleLowerCase(),rows=state.catalogMode==='campaigns'?state.campaigns:state.products;paintList('catalogList',rows.filter(r=>!q||JSON.stringify(r).toLocaleLowerCase().includes(q)),['name','title','code'],'未找到符合的資料');}
+  function renderFull(){
+    if(!state.full)return;
+    const shipments=state.full.shipments||[],purchases=state.full.purchases||[],cons=state.full.consolidations||[];
+    const host=el('fulfillList');host.replaceChildren();
+    [['官方採購',purchases],['集運／二補',cons],['台灣出貨',shipments]].forEach(([title,rows])=>{const c=document.createElement('div');c.className='card';const h=document.createElement('h2');h.textContent=title+' · '+fmt(rows.length);c.append(h);rows.slice(0,10).forEach(r=>createItem(c,r,['name','title','code','trackingNumber']));host.append(c);});
+    const finance=el('financeList');finance.replaceChildren();
+    const records=state.full.financeRecords||[];
+    const note=document.createElement('p');note.className='status warn';note.textContent='財務資料共 '+fmt(records.length)+' 筆。實際金額仍需核對帳單，不以未填金額當作零。';finance.append(note);
+  }
+  function openDashboard(data){
+    if(!data||data.ok!==true)throw new Error('主購身分未通過');
+    state.campaigns=Array.isArray(data.campaigns)?data.campaigns:[];
+    state.products=Array.isArray(data.products)?data.products:[];
+    showPrivate();
+    label('loadNotice','正在讀取訂單與詢價，尚未完成前不顯示零元結論。');
+    rpc('operationsCore').then(res=>{
+      if(!res||res.ok===false)throw new Error(res&&res.message||'讀取失敗');
+      state.orders=Array.isArray(res.orders)?res.orders:[];state.wishes=Array.isArray(res.wishes)?res.wishes:[];state.coreLoaded=true;
+      updateMetrics();renderOrders();renderCatalog();
+      const notice=el('loadNotice');notice.textContent='已載入訂單 '+state.orders.length+' 筆、團次 '+state.campaigns.length+' 組、商品 '+state.products.length+' 件；付款仍需人工核帳。';notice.className='status ok';
+    }).catch(err=>{const n=el('loadNotice');n.textContent='訂單資料載入失敗：'+err.message+'。請勿將空白誤認為沒有訂單。';n.className='status bad';});
+  }
+  function showTab(tab){
+    if(!['dashboard','orders','campaigns','fulfillment','finance','system'].includes(tab))return;
+    state.active=tab;
+    document.querySelectorAll('.section').forEach(n=>n.classList.toggle('active',n.id==='section-'+tab));
+    document.querySelectorAll('[data-tab]').forEach(n=>n.classList.toggle('active',n.dataset.tab===tab));
+    if(['fulfillment','finance'].includes(tab)&&!state.full){
+      const targets=tab==='finance'?el('financeList'):el('fulfillList');
+      targets.textContent='正在載入完整資料…';
+      rpc('operations').then(r=>{if(!r||r.ok===false)throw new Error('完整資料讀取失敗');state.full=r;renderFull();}).catch(e=>{targets.textContent='資料讀取失敗：'+e.message;});
+    }
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
+  el('requestOtpBtn').addEventListener('click',async()=>{
+    const b=el('requestOtpBtn');b.disabled=true;label('loginState','正在寄送管理驗證碼…');
+    try{const r=await rpc('requestOtp');if(!r||r.ok!==true)throw new Error(r&&r.message||'寄送失敗');el('verifyBox').classList.remove('hidden');label('loginState','已寄至管理信箱 '+(r.emailHint||'')+'；驗證碼有效 10 分鐘。');}
+    catch(e){label('loginState','寄送失敗：'+e.message);}finally{b.disabled=false;}
+  });
+  el('verifyOtpBtn').addEventListener('click',async()=>{
+    const code=el('otpInput').value.trim();if(!/^\d{6}$/.test(code)){label('loginState','請輸入六位數驗證碼');return;}
+    const b=el('verifyOtpBtn');b.disabled=true;label('loginState','驗證中…');
+    try{const r=await rpc('verifyOtp',[code]);if(!r||r.ok!==true)throw new Error(r&&r.message||'驗證未通過');el('otpInput').value='';const data=await rpc('bootstrap');openDashboard(data);}
+    catch(e){label('loginState','驗證／載入失敗：'+e.message);}finally{b.disabled=false;}
+  });
+  el('logoutBtn').addEventListener('click',async()=>{try{await rpc('logout');}catch(e){}state.orders=[];state.products=[];state.campaigns=[];state.full=null;state.coreLoaded=false;showLogin();message('已登出，管理憑證已從此裝置清除。','ok');});
+  el('refreshBtn').addEventListener('click',async()=>{el('loadNotice').textContent='重新讀取中…';try{const b=await rpc('bootstrap');openDashboard(b);}catch(e){el('loadNotice').textContent='更新失敗：'+e.message;}});
+  el('orderSearch').addEventListener('input',renderOrders);
+  el('catalogSearch').addEventListener('input',renderCatalog);
+  el('campaignsTabBtn').addEventListener('click',()=>{state.catalogMode='campaigns';renderCatalog();});
+  el('productsTabBtn').addEventListener('click',()=>{state.catalogMode='products';renderCatalog();});
+})();
+</script>
+</body>
+</html>
