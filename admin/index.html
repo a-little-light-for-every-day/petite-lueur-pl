@@ -79,10 +79,10 @@
         </div>
         <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div><div id="wishDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div><div id="catalogDetail" class="card hidden" style="margin-top:16px"></div></div>
-        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；其他採購與集運仍由原工作台管理。</p><div id="fulfillList" class="list"></div></div>
+        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；現有官方採購、集運與台灣出貨紀錄可直接更新；新增批次與附件仍由原工作台處理。</p><input id="fulfillSearch" class="search" placeholder="搜尋批次、物流單號或狀態"><div id="fulfillList" class="list" style="margin-top:14px"></div><div id="fulfillDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
         <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><p id="ownerBridgeCheck" class="status warn">管理寫入接口待確認；診斷只傳送無效識別碼，不會更動任何紀錄。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
-        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">目前支援訂單費用、追蹤號碼、人工核帳、商品售價與上架狀態、團次收款流程及詢價處理；採購、集運建立與出貨進階作業仍使用原工作台。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
+        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">可直接編輯現有訂單、商品、團次流程、詢價、採購、集運與台灣出貨；新建採購／集運／出貨批次及附件仍由原工作台處理。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
       </main>
     </div>
   </div>
@@ -398,12 +398,77 @@
     box.scrollIntoView({behavior:'smooth',block:'start'});
   }
 
-  function renderFull(){
+
+  const fulfillDefs={
+    purchase:{name:'官方採購',states:['待官方下單','已向官方下單','官方備貨／出貨準備中','日本境內配送中','日本倉庫已到貨','已取消'],fields:[['officialOrder','官方訂單編號','text'],['orderedAt','下單日期','date'],['expectedShip','預計出貨','text']]},
+    consolidation:{name:'日本集運／二補',states:['待集運','日本倉庫已到貨','國際運送中','已抵台','已完成分攤'],fields:[['domesticShipping','其他日本境內運費','number'],['intlShipping','國際運費','number'],['taxFee','稅費','number'],['packagingFee','包材費','number'],['secondDeadline','二補期限','date']]},
+    shipment:{name:'台灣出貨',states:['待出貨','已建立寄件','已寄出','已取貨','退回處理'],fields:[['method','寄送方式','select'],['tracking','物流單號','text'],['localShipping','台灣運費','number'],['packagingFee','包材費','number'],['sentAt','寄出日期','date']]}
+  };
+  function fulfillRows(type){return state.full?(type==='purchase'?state.full.purchases:type==='consolidation'?state.full.consolidations:state.full.shipments)||[]:[];}
+  function renderFulfill(){
     if(!state.full)return;
-    const shipments=state.full.shipments||[],purchases=state.full.purchases||[],cons=state.full.consolidations||[];
     const host=el('fulfillList');host.replaceChildren();
-    [['官方採購',purchases],['集運／二補',cons],['台灣出貨',shipments]].forEach(([title,rows])=>{const c=document.createElement('div');c.className='card';const h=document.createElement('h2');h.textContent=title+' · '+fmt(rows.length);c.append(h);rows.slice(0,10).forEach(r=>createItem(c,r,['name','title','code','trackingNumber']));host.append(c);});
-    const finance=el('financeList');finance.replaceChildren();
+    const query=el('fulfillSearch').value.trim().toLocaleLowerCase();
+    Object.keys(fulfillDefs).forEach(type=>{
+      const def=fulfillDefs[type],all=fulfillRows(type),records=all.filter(x=>!query||JSON.stringify(x).toLocaleLowerCase().includes(query));
+      const group=document.createElement('section');group.className='card stack';
+      const title=document.createElement('h2');title.textContent=def.name+'｜'+records.length+' 筆';group.append(title);
+      records.slice(0,80).forEach(r=>{
+        const item=document.createElement('div');item.className='item';
+        const info=document.createElement('div'),name=document.createElement('b'),meta=document.createElement('small');
+        name.textContent=textOf(r,['name','code','tracking'])||'未命名紀錄';
+        meta.textContent=[r.code,r.status,r.officialOrder,r.tracking].filter(Boolean).join(' · ');
+        info.append(name,meta);
+        const btn=document.createElement('button');btn.className='btn';btn.type='button';btn.textContent='管理';btn.addEventListener('click',()=>openFulfill(type,r));
+        item.append(info,btn);group.append(item);
+      });
+      if(!records.length){const p=document.createElement('p');p.className='tiny';p.textContent='沒有符合項目';group.append(p);}
+      host.append(group);
+    });
+    el('fulfillDetail').classList.add('hidden');
+  }
+  function openFulfill(type,row){
+    const def=fulfillDefs[type],pageId=String(row.pageId||''),host=el('fulfillDetail');
+    host.replaceChildren();host.classList.remove('hidden');
+    const title=document.createElement('h2');title.textContent=def.name+'｜'+textOf(row,['name','code','tracking']);host.append(title);
+    const hint=document.createElement('p');hint.className='status warn';
+    hint.textContent='僅寫入修改過的欄位。官方採購狀態可能同步團次；台灣出貨資訊可能同步到關聯訂單。';host.append(hint);
+    if(type==='shipment'&&(row.orderIds||[]).length>1){const combined=document.createElement('p');combined.className='status warn';combined.textContent='合併出貨包裹，連結 '+row.orderIds.length+' 張訂單。物流資訊會同步影響這些訂單。';host.append(combined);}
+    const grid=document.createElement('div');grid.className='actionGrid';host.append(grid);
+    const options=def.states.includes(row.status)?def.states:[String(row.status||''),...def.states].filter(Boolean);
+    const controls={status:choiceBox(grid,'處理狀態',options.map(x=>[x,x]),row.status||options[0])};
+    const keys=[['status','處理狀態','select'],...def.fields];
+    def.fields.forEach(([key,label,kind])=>{
+      if(kind==='select')controls[key]=choiceBox(grid,label,['7-ELEVEN 賣貨便','7-ELEVEN 一般交貨便','黑貓宅急便',String(row[key]||'')].filter((x,i,a)=>x&&a.indexOf(x)===i).map(x=>[x,x]),row[key]||'7-ELEVEN 賣貨便');
+      else controls[key]=fieldBox(grid,label,kind,kind==='date'?String(row[key]||'').slice(0,10):row[key]??'');
+      if(kind==='text')controls[key].maxLength=150;
+    });
+    const original=Object.fromEntries(keys.map(([key])=>[key,controls[key].value]));
+    const btn=document.createElement('button');btn.className='btn primary';btn.type='button';btn.textContent='儲存履約修改';
+    const note=document.createElement('p');note.className='tiny';note.setAttribute('role','status');host.append(btn,note);
+    btn.addEventListener('click',async()=>{
+      const changed={};
+      for(const [key,label,kind] of keys){
+        const v=controls[key].value.trim();if(v===original[key])continue;
+        if(kind==='number'&&(v===''||!Number.isInteger(Number(v))||Number(v)<0||Number(v)>10000000)){note.textContent=label+'請填 0 以上整數。';return;}
+        if(kind==='date'&&v&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(v)){note.textContent=label+'日期格式不正確。';return;}
+        changed[key]=kind==='number'?Number(v):v;
+      }
+      if(!Object.keys(changed).length){note.textContent='沒有資料變更。';return;}
+      if(!confirm('確定修改「'+textOf(row,['name','code'])+'」的 '+Object.keys(changed).length+' 個正式欄位？相關團次／訂單可能同步更新。'))return;
+      btn.disabled=true;note.textContent='儲存中…';
+      try{
+        const result=await rpc('updateFulfillment',[{type,pageId,fields:changed}]);
+        if(result&&result.ok===false)throw new Error(result.message||'儲存失敗');
+        const data=await rpc('operations');if(!data||data.ok===false)throw new Error('重新讀取失敗');
+        state.full=data;renderFull();
+        const updated=fulfillRows(type).find(x=>String(x.pageId||'')===pageId);
+        if(updated){openFulfill(type,updated);const done=document.createElement('p');done.className='status ok';done.textContent='已更新並從正式後台重新讀取。';el('fulfillDetail').append(done);}
+      }catch(e){note.textContent='儲存失敗：'+e.message;note.className='status bad';btn.disabled=false;}
+    });
+    host.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  function renderFull(){renderFulfill();    const finance=el('financeList');finance.replaceChildren();
     const records=state.full.financeRecords||[];
     const note=document.createElement('p');note.className='status warn';note.textContent='財務資料共 '+fmt(records.length)+' 筆。未填金額與未知成本絕不當作 NT$0 或直接推算利潤。';finance.append(note);
     const money=(v,known)=>known===true?'NT$'+fmt(v):'未確認';
@@ -416,13 +481,15 @@
       values.textContent='實際支出 '+money(r.actualTwd,r.actualTwdKnown)+'　｜　客人實收 '+money(r.customerReceived,r.customerReceivedKnown)+'　｜　利潤 '+money(r.profit,r.profitKnown);
       c.append(title,meta,values);finance.append(c);
     });
+
   }
   async function checkOwnerBridge(){
     const area=el('ownerBridgeCheck');
     const tests=[
       ['updateProduct',{pageId:'invalid',fields:{status:'預購中'}},'紀錄識別碼或修改內容有誤'],
       ['reviewWish',{pageId:'invalid',fields:{status:'待主購確認'}},'紀錄識別碼或修改內容有誤'],
-      ['updateCampaignWorkflow',{campaignId:'invalid',workflow:'PREPAY'},'團次與流程參數有誤']
+      ['updateCampaignWorkflow',{campaignId:'invalid',workflow:'PREPAY'},'團次與流程參數有誤'],
+      ['updateFulfillment',{type:'purchase',pageId:'invalid',fields:{status:'待官方下單'}},'履約記錄 ID 或修改內容有誤']
     ];
     area.textContent='正在檢查商品、團次與詢價管理接口…';area.className='status warn';
     const results=await Promise.all(tests.map(async([action,payload,expected])=>{
@@ -430,7 +497,7 @@
       catch(e){return String(e.message||'').includes(expected);}
     }));
     const ready=results.every(Boolean);
-    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價三項安全驗證通過（未修改任何資料）。':'管理寫入接口未完全就緒；請勿使用新頁面的寫入功能，先使用原工作台。';
+    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價、履約四項安全驗證通過（未修改任何資料）。':'管理寫入接口未完全就緒；請勿使用新頁面的寫入功能，先使用原工作台。';
     area.className='status '+(ready?'ok':'bad');
   }
   function openDashboard(data){
@@ -475,6 +542,7 @@
   el('refreshBtn').addEventListener('click',async()=>{el('loadNotice').textContent='重新讀取中…';try{const b=await rpc('bootstrap');openDashboard(b);}catch(e){el('loadNotice').textContent='更新失敗：'+e.message;}});
   el('orderSearch').addEventListener('input',renderOrders);
   el('catalogSearch').addEventListener('input',renderCatalog);
+  el('fulfillSearch').addEventListener('input',renderFulfill);
   el('campaignsTabBtn').addEventListener('click',()=>{state.catalogMode='campaigns';renderCatalog();});
   el('productsTabBtn').addEventListener('click',()=>{state.catalogMode='products';renderCatalog();});
 })();
