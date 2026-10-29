@@ -2,6 +2,19 @@ import fs from 'node:fs';
 fs.mkdirSync('dist',{recursive:true});
 let html=fs.readFileSync('index.html','utf8');
 const oldStore='https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec';
+const owner = String(process.env.GITHUB_REPOSITORY_OWNER || 'saoririri').toLowerCase();
+const pagesOrigin = 'https://' + owner + '.github.io';
+const sourceOrigin = 'https://saoririri.github.io';
+html = html.replaceAll(sourceOrigin, pagesOrigin);
+const payloadPattern = /(<script\b[^>]*\bid="plInitialStoreData"[^>]*\bdata-payload=")([^"]+)(")/;
+const payloadMatch = html.match(payloadPattern);
+if (!payloadMatch) throw new Error('Published product snapshot missing');
+const data = JSON.parse(Buffer.from(payloadMatch[2], 'base64url').toString('utf8'));
+if (!Array.isArray(data.products) || data.products.some(p => p.published === false)) throw new Error('Unexpected unpublished products in public snapshot');
+if(data.siteSettings) data.siteSettings.canonicalUrl=pagesOrigin+'/petite-lueur-pl/';
+const adapted = Buffer.from(JSON.stringify(data),'utf8').toString('base64url');
+html = html.replace(payloadPattern, (_, a, b, c) => a + adapted + c);
+
 html=html.replace('<meta name="robots" content="index,follow,max-image-preview:large">','<meta name="robots" content="noindex,nofollow">');
 const guard=`<style>
 #plGithubPreviewBar{position:sticky;top:0;z-index:9999;background:#6d4345;color:#fff;padding:12px 18px;text-align:center;font:600 14px/1.6 system-ui,sans-serif}
