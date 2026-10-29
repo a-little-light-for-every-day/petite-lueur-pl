@@ -1287,7 +1287,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
             <div class="plRequestGrid">
               <div class="field"><label for="wishVariant">規格／尺寸／顏色（選填）</label><input id="wishVariant" placeholder="例如：黑色 S、角色／版本"></div>
               <div class="field"><label for="wishQty">數量 *</label><input id="wishQty" type="number" min="1" max="99" step="1" value="1"></div>
-              <div class="field plRequestEmail"><label for="wishEmail">聯絡 Email *</label><input id="wishEmail" type="email" autocomplete="email" placeholder="用於通知詢價結果"></div>
+              <div class="field plRequestEmail"><label for="wishEmail">聯絡 Email *</label><input id="wishEmail" type="email" autocomplete="email" placeholder="用於通知詢價結果" oninput="plEmailHint(this,'wishEmailHint')"><small id="wishEmailHint" class="meta" style="display:block;color:#a7484b;margin-top:4px" aria-live="polite"></small></div>
             </div>
             <div class="field"><label for="wishNote">補充需求（選填）</label><textarea id="wishNote" rows="3" placeholder="特典、指定版本、購買限制或其他想確認的細節"></textarea></div>
             <div id="plRequestGuard" class="plRequestGuard">♡ 送出的是詢價，不是訂單，也不需要現在付款。PL 核對可否採購、付款與物流費用後才會提供正式報價；是否承接仍待雙方確認。</div>
@@ -1353,7 +1353,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
           <b>已經匯款了嗎？請一定要回報付款。</b><br>
           <span class="meta">主購只能看到銀行入帳金額，無法只靠金額知道是哪位客人的款項。Email 驗證後，在你的訂單旁按「回報付款」，填入付款人姓名、日期、實際金額與帳號末五碼即可。</span>
         </div>
-        <div class="field"><label>訂購 Email</label><input id="lookupEmail" type="email" placeholder="you@example.com"></div>
+        <div class="field"><label>訂購 Email</label><input id="lookupEmail" type="email" autocomplete="email" placeholder="you@example.com" oninput="plEmailHint(this,'lookupEmailHint')"><small id="lookupEmailHint" class="meta" style="display:block;color:#a7484b;margin-top:4px" aria-live="polite"></small></div>
         <div id="lookupOtpRow" class="field hidden"><label>六位數驗證碼</label><input id="lookupOtp" inputmode="numeric" maxlength="6" placeholder="000000"></div>
         <div class="lookupActions"><button id="sendOtpBtn" class="softbtn" onclick="sendLookupOtp()">寄送驗證碼</button><button id="verifyOtpBtn" class="primary hidden" onclick="verifyLookupOtp()">驗證並查詢</button></div>
         <div class="meta" style="margin-top:8px">沒看到信？先搜尋「Petite Lueur PL」，並檢查垃圾郵件、促銷內容與所有郵件。60 秒後可重新寄送；驗證後即使付款通知信沒看到，也能直接在網站查看付款資料。</div>
@@ -1559,7 +1559,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         <div id="cartSummary" class="summary hidden"></div>
         <div id="checkout" class="checkout hidden">
           <div class="field"><label>訂購人本名</label><input id="customerName" autocomplete="name" placeholder="請填本名"></div>
-          <div class="field"><label>Email</label><input id="customerEmail" type="email" autocomplete="email" placeholder="付款通知與訂單查詢會寄到這裡"></div>
+          <div class="field"><label>Email</label><input id="customerEmail" type="email" autocomplete="email" placeholder="付款通知與訂單查詢會寄到這裡" oninput="plEmailHint(this,'customerEmailHint')"><small id="customerEmailHint" class="meta" style="display:block;color:#a7484b;margin-top:4px" aria-live="polite"></small></div>
           <div class="field"><label>社群或手機（必填）</label><input id="customerContact" type="text" autocomplete="tel" placeholder="IG 帳號或手機號碼"></div>
           <div id="onsiteContactFields" class="onsiteContactFields hidden">
             <div class="onsiteContactNotice"><b>日本現地代購聯絡資料</b><span>Email 沒看到時，主購會依這裡的資料回社群找你。</span></div>
@@ -3356,7 +3356,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function removeLine(i){cart.splice(i,1);saveCart();renderCart();renderProducts()}
   function cartStep(i,delta){const line=cart[i],p=productById(line.productId);if(!line||!p)return;const next=line.quantity+delta;if(next<1){removeLine(i);return}const max=maxFor(p);const other=perVariantLimit(p)?variantQtyInCart(line.productId,line.variantLabel,i):cart.filter((_,idx)=>idx!==i).filter(x=>String(x.productId)===String(line.productId)).reduce((s,x)=>s+Number(x.quantity||0),0);const allowed=Math.min(max,serverRemaining(p,line.variantLabel));if(other+next>allowed){alert(allowed<=0?'此規格目前已額滿':('目前最多還可加入 '+Math.max(0,allowed-other)+' 件'));return}line.quantity=next;saveCart();renderCart();renderProducts()}
   async function submitOrder(){
-    const btn=$('submitOrderBtn');msg('submitMsg','');try{if(!cart.length)throw new Error('購物袋目前沒有商品');const draft={customerName:$('customerName').value.trim(),email:$('customerEmail').value.trim(),contact:$('customerContact').value.trim(),socialPlatform:$('socialPlatform')?$('socialPlatform').value:'',socialNickname:$('socialNickname')?$('socialNickname').value.trim():'',deliveryMethod:$('deliveryMethod').value,ageConfirmed:$('ageConfirmed').checked,noAbandonConfirmed:$('noAbandonConfirmed').checked,termsAccepted:$('termsAccepted').checked,items:cart.map(x=>({productId:x.productId,code:x.code,quantity:x.quantity,selections:x.selections||{},variantLabel:x.variantLabel||''}))};btn.disabled=true;btn.textContent='送出中…';const res=await call('plStoreSubmitOrder',[draft]);msg('submitMsg','已送出！訂單編號：'+res.orderNumber+'。主購確認後會寄 Email 通知。','ok');cart=[];saveCart();renderCart();await bootstrap()}
+    const btn=$('submitOrderBtn');msg('submitMsg','');try{if(!cart.length)throw new Error('購物袋目前沒有商品');const draft={customerName:$('customerName').value.trim(),email:$('customerEmail').value.trim(),contact:$('customerContact').value.trim(),socialPlatform:$('socialPlatform')?$('socialPlatform').value:'',socialNickname:$('socialNickname')?$('socialNickname').value.trim():'',deliveryMethod:$('deliveryMethod').value,ageConfirmed:$('ageConfirmed').checked,noAbandonConfirmed:$('noAbandonConfirmed').checked,termsAccepted:$('termsAccepted').checked,items:cart.map(x=>({productId:x.productId,code:x.code,quantity:x.quantity,selections:x.selections||{},variantLabel:x.variantLabel||''}))};draft.email=plValidateCustomerEmail(draft.email);btn.disabled=true;btn.textContent='送出中…';const res=await call('plStoreSubmitOrder',[draft]);msg('submitMsg','已送出！訂單編號：'+res.orderNumber+'。主購確認後會寄 Email 通知。','ok');cart=[];saveCart();renderCart();await bootstrap()}
     catch(e){msg('submitMsg',e.message,'bad')}finally{btn.disabled=false;btn.textContent='送出訂購申請'}
   }
 
@@ -3421,7 +3421,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const isWish=wishIntent==='wish';
     try{
       if(!/^https?:\/\//i.test(url))throw new Error('請先貼上完整的日本商品網址');
-      if(!email||!/^\S+@\S+\.\S+$/.test(email))throw new Error('請填寫正確的 Email');
+      plValidateCustomerEmail(email);
       if(!Number.isInteger(quantity)||quantity<1||quantity>99)throw new Error('請填寫 1～99 的正確數量');
       if(plOfferListedOrder(url))throw new Error('此商品已在正式商店上架，請從商品頁送出訂購申請。');
       btn.disabled=true;btn.textContent='送出中…';
@@ -3442,6 +3442,29 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     finally{btn.disabled=false;btn.textContent=isWish?'送出商品許願 ♡':'送出代購詢價 →';}
   }
 
+
+  function plEmailDomainSuggestion(address){
+    const s=String(address||'').trim(),at=s.lastIndexOf('@');
+    if(at<1)return '';
+    const domain=s.slice(at+1).toLowerCase();
+    const known={'gmail.comn':'gmail.com','gmail.con':'gmail.com','gmail.comm':'gmail.com','gmail.cmo':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com','gamil.com':'gmail.com','gmial.com':'gmail.com','gmali.com':'gmail.com','gmai.com':'gmail.com','gnail.com':'gmail.com','hotmail.comn':'hotmail.com','outlook.comn':'outlook.com','yahoo.comn':'yahoo.com','icloud.comn':'icloud.com'};
+    return known[domain]||'';
+  }
+  function plValidateCustomerEmail(value){
+    const email=String(value||'').trim();
+    if(!email)throw new Error('請先輸入 Email');
+    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))throw new Error('Email 格式不正確，請重新確認');
+    const domain=email.slice(email.lastIndexOf('@')+1);
+    if(domain.startsWith('.')||domain.endsWith('.')||domain.includes('..'))throw new Error('Email 網域格式不正確，請重新確認');
+    const suggestion=plEmailDomainSuggestion(email);
+    if(suggestion)throw new Error('Email 網域「'+domain+'」可能拼錯。是否應為「'+suggestion+'」？為避免退信，請先自行更正後再送出。');
+    return email;
+  }
+  function plEmailHint(input,targetId){
+    const node=$(targetId);if(!node)return;
+    const suggestion=plEmailDomainSuggestion(input&&input.value);
+    node.textContent=suggestion?'⚠️ 網域可能拼錯，是否應為「'+suggestion+'」？請自行更正；系統不會自動修改。':'';
+  }
 
   function maskLookupEmail(email){
     const s=String(email||'').trim(),at=s.indexOf('@');
@@ -3467,7 +3490,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const email=$('lookupEmail').value.trim(),btn=$('sendOtpBtn');
     msg('lookupMsg','');
     try{
-      if(!email)throw new Error('請先輸入 Email');
+      plValidateCustomerEmail(email);
       btn.disabled=true;
       const res=await call('plStoreRequestLookupOtp',[email]);
       if(!res.ok)throw new Error(res.message||'寄送失敗');
@@ -3483,7 +3506,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       msg('lookupMsg',e.message,'bad');
     }
   }
-  async function verifyLookupOtp(){const email=$('lookupEmail').value.trim(),code=$('lookupOtp').value.trim(),btn=$('verifyOtpBtn');msg('lookupMsg','');try{btn.disabled=true;const verified=await call('plStoreVerifyLookupOtp',[email,code]);if(!verified.ok)throw new Error(verified.message||'驗證失敗');lookupToken=verified.token;const res=await call('plStoreListMyOrders',[lookupToken]);renderOrders(res.orders||[]);msg('lookupMsg','驗證完成。','ok')}catch(e){msg('lookupMsg',e.message,'bad')}finally{btn.disabled=false}}
+  async function verifyLookupOtp(){const email=$('lookupEmail').value.trim(),code=$('lookupOtp').value.trim(),btn=$('verifyOtpBtn');msg('lookupMsg','');try{plValidateCustomerEmail(email);btn.disabled=true;const verified=await call('plStoreVerifyLookupOtp',[email,code]);if(!verified.ok)throw new Error(verified.message||'驗證失敗');lookupToken=verified.token;const res=await call('plStoreListMyOrders',[lookupToken]);renderOrders(res.orders||[]);msg('lookupMsg','驗證完成。','ok')}catch(e){msg('lookupMsg',e.message,'bad')}finally{btn.disabled=false}}
   function customerOrderStatusLabel(o){
     if(o.orderType==='日本網站代下單／代付' && o.status==='已完成')return '代付／下單已完成';
     // 僅依已確認且已儲存在「該張客單」的狀態顯示。勾選集運關聯不會偷偷改單。
