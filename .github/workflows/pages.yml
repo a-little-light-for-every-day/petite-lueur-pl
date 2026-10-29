@@ -1,4 +1,4 @@
-name: Deploy PL test site to GitHub Pages
+name: Deploy PL official branded site to GitHub Pages
 on:
   push:
     branches: [main]
@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Checkout approved public frontend
         uses: actions/checkout@v4
-      - name: Build safe read-only preview
+      - name: Build approved public storefront
         run: node tools/prepare-preview.mjs
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
