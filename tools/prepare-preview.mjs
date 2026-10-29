@@ -23,6 +23,19 @@ const guard=`<style>
 <div id="plGithubPreviewBar" role="status">GitHub 新站測試版｜已搬入公開商品，但尚未開放訂購、詢問與查單。
 <a href="${oldStore}" target="_blank" rel="noopener noreferrer">交易請使用原正式網站</a></div>
 <script>
+// Temporary DOM-only diagnostics for cross-origin bridge validation.
+document.documentElement.dataset.plBridgeSignal='waiting';
+window.addEventListener('message',function(event){
+  const data=event.data;
+  if(!data||typeof data!=='object')return;
+  if(data.type==='PL_GAS_READY'){
+    document.documentElement.dataset.plBridgeSignal='ready';
+    document.documentElement.dataset.plBridgeOrigin=event.origin;
+  }
+  if(data.type==='PL_GAS_REPLY'){
+    document.documentElement.dataset.plBridgeReply=String(data.ok);
+  }
+});
 window.PL_STATIC_PREVIEW_ONLY=true;
 // Allow public read methods through the real GAS bridge during verification.
 window.addEventListener('DOMContentLoaded',function(){
