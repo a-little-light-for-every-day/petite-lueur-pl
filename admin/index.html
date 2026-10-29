@@ -28,6 +28,7 @@
     .mobileDock{display:none}.hidden{display:none!important}
     @media(max-width:950px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.layout{grid-template-columns:1fr}.sidebar{position:static;flex-direction:row;flex-wrap:wrap}.nav{width:auto}.page{padding:12px 12px 100px}}
     @media(max-width:650px){.top{align-items:flex-start}.brand{font-size:22px}.card{padding:15px;border-radius:18px}.grid{gap:9px}.metric{min-height:100px}.metric .number{font-size:25px}.sidebar{display:none}.mobileDock{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fffdfb;border-top:1px solid var(--line);z-index:5;justify-content:space-around;padding:7px 4px max(7px,env(safe-area-inset-bottom))}.mobileDock button{border:0;background:transparent;font-size:12px;color:var(--ink);padding:8px;min-height:44px}.mobileDock button.active{color:var(--roseDark);font-weight:800}.top .actions .btn{padding:8px}.item{flex-direction:column}}
+    .ownerAction{margin-top:20px;padding:15px;border:1px solid var(--line);border-radius:15px;background:#fffdfa}.ownerAction h3{color:var(--roseDark)}.actionGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:12px 0}.actionField{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:650}
   </style>
 </head>
 <body>
@@ -78,10 +79,10 @@
         </div>
         <div class="section" id="section-orders"><h1>客戶訂單與付款</h1><p class="lead">依訂單編號、客戶資料或狀態查詢。付款回報仍需人工核對實際入帳。</p><input id="orderSearch" class="search" placeholder="搜尋訂單編號、團次、狀態"><div id="ordersList" class="list" style="margin-top:14px"></div><div id="orderDetail" class="card hidden" style="margin-top:16px"></div><h2 style="margin-top:22px">詢價與許願紀錄</h2><div id="wishesList" class="list"><p class="tiny">載入中</p></div></div>
         <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div></div>
-        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；寫入操作尚保留於原工作台，避免資料雙寫。</p><div id="fulfillList" class="list"></div></div>
+        <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；其他採購與集運仍由原工作台管理。</p><div id="fulfillList" class="list"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
         <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
-        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>目前階段：安全讀取與統一檢視</strong><div class="tiny">建立／修改、核帳、發通知仍由原工作台執行，直到逐項驗收。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
+        <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>目前階段：安全讀取與訂單寫入</strong><div class="tiny">已開放費用／物流變更與人工核帳；搶貨結果和其他進階管理仍請使用原工作台。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
       </main>
     </div>
   </div>
@@ -156,10 +157,101 @@
     paintList('historyList',ended.slice(0,8),['name','title','code'],'目前沒有已結束團次');
     label('dataFreshness','管理資料更新：'+new Date().toLocaleString('zh-TW'));
   }
+
+  async function reloadWrittenOrder(orderNo){
+    const data=await rpc('operationsCore');
+    if(!data||data.ok===false)throw new Error(data&&data.message||'讀取失敗');
+    state.orders=Array.isArray(data.orders)?data.orders:[];
+    updateMetrics();renderOrders();
+    const updated=state.orders.find(o=>o.orderNumber===orderNo);
+    if(updated)showOrderDetail(updated);
+  }
+  function fieldBox(host,label,type,value){
+    const wrap=document.createElement('label');wrap.className='actionField';
+    const txt=document.createElement('span');txt.textContent=label;wrap.append(txt);
+    const input=document.createElement('input');input.className='search';input.type=type;
+    if(type==='number'){input.min='0';input.step='1';}
+    input.value=value==null?'':String(value);wrap.append(input);host.append(wrap);
+    return input;
+  }
+  function ownerActions(host,order){
+    const pageId=String(order.pageId||'');
+    if(!pageId)return;
+    const block=document.createElement('section');block.className='ownerAction';host.append(block);
+    const h=document.createElement('h3');h.textContent='主購寫入｜訂單費用與配送';block.append(h);
+    const tip=document.createElement('p');tip.className='tiny';tip.textContent='僅寫入有變動的欄位。原系統可能依訂單狀態觸發既有通知；按儲存前請確認。';block.append(tip);
+    const grid=document.createElement('div');grid.className='actionGrid';block.append(grid);
+    const definitions=[
+      ['domesticShipping','日本國內運費','number'],
+      ['intlShipping','國際運費','number'],
+      ['taxFee','關稅與稅費','number'],
+      ['packagingFee','包材費','number'],
+      ['localShipping','台灣運費','number'],
+      ['secondPayment','二補應付款','number'],
+      ['secondDeadline','二補期限','date'],
+      ['trackingNumber','物流單號','text']
+    ];
+    const inputs={};const initial={};
+    definitions.forEach(([key,label,type])=>{
+      let v=order[key];if(type==='date')v=String(v||'').slice(0,10);
+      const control=fieldBox(grid,label,type,v);
+      inputs[key]=control;initial[key]=control.value;
+    });
+    const btn=document.createElement('button');btn.type='button';btn.className='btn primary';btn.textContent='儲存修改';
+    const note=document.createElement('p');note.className='tiny';note.setAttribute('role','status');block.append(btn,note);
+    btn.addEventListener('click',async()=>{
+      const changes={};
+      for(const [key,,type] of definitions){
+        const value=inputs[key].value.trim();
+        if(value===initial[key])continue;
+        if(type==='number'){
+          const num=Number(value);
+          if(value===''||!Number.isInteger(num)||num<0){note.textContent='請輸入正整數或 0。';return;}
+          changes[key]=num;
+        }else changes[key]=value;
+      }
+      if(!Object.keys(changes).length){note.textContent='沒有資料變更。';return;}
+      if(!confirm('將 '+order.orderNumber+' 的 '+Object.keys(changes).length+' 個欄位寫入正式後台？\n原系統可能依訂單狀態處理既有通知。'))return;
+      btn.disabled=true;note.textContent='儲存中…';
+      try{
+        const res=await rpc('updateOrder',[{pageId,fields:changes}]);
+        if(res&&res.ok===false)throw new Error(res.message||'儲存失敗');
+        await reloadWrittenOrder(order.orderNumber);
+      }catch(e){note.textContent='儲存／同步失敗：'+e.message;btn.disabled=false;}
+    });
+    const ps=String(order.paymentStatus||'');
+    const first=['待第一階段付款','付款資料已提交'].includes(ps);
+    const second=['等待第二次付款','第二階段付款資料已提交'].includes(ps);
+    if(!first&&!second)return;
+    const amountDue=Number(second?order.secondPayment:order.itemSubtotal||0);
+    const pay=document.createElement('section');pay.className='ownerAction';host.append(pay);
+    const payHead=document.createElement('h3');payHead.textContent='人工核對'+(second?'第二':'第一')+'階段付款';pay.append(payHead);
+    const help=document.createElement('p');help.className='status warn';
+    help.textContent='應付 NT$'+fmt(amountDue)+'。須先查證實際銀行入帳；此操作不會代替銀行對帳，也不會自動寄新通知。';pay.append(help);
+    const fields=document.createElement('div');fields.className='actionGrid';pay.append(fields);
+    const amount=fieldBox(fields,'已查證實際入帳（必填）','number','');
+    const five=fieldBox(fields,'末五碼（選填）','text',order.paymentLastFive||'');five.maxLength=5;
+    const payer=fieldBox(fields,'付款人（選填）','text',order.payerName||'');
+    const day=fieldBox(fields,'付款日期（選填）','date',String(order.paymentDate||'').slice(0,10));
+    const payBtn=document.createElement('button');payBtn.type='button';payBtn.className='btn primary';payBtn.textContent='核對入帳並更新付款狀態';
+    const payNote=document.createElement('p');payNote.className='tiny';payNote.setAttribute('role','status');pay.append(payBtn,payNote);
+    payBtn.addEventListener('click',async()=>{
+      const n=Number(amount.value);
+      if(!Number.isInteger(n)||n<=0||n!==amountDue){payNote.textContent='請輸入與應付金額一致的實際入帳數字。';return;}
+      if(five.value.trim()&&!/^\d{5}$/.test(five.value.trim())){payNote.textContent='末五碼應為 5 位數字。';return;}
+      if(!confirm('你是否已親自確認 '+order.orderNumber+' 的 NT$'+fmt(n)+' 實際入帳？\n\n這將正式更新付款狀態。'))return;
+      payBtn.disabled=true;payNote.textContent='核帳中…';
+      try{
+        const res=await rpc('confirmPayment',[{pageId,bankData:{amount:n,lastFive:five.value.trim(),payerName:payer.value.trim(),paymentDate:day.value}}]);
+        if(!res||res.ok!==true)throw new Error(res&&res.message||'核帳未成功');
+        await reloadWrittenOrder(order.orderNumber);
+      }catch(e){payNote.textContent='核帳失敗：'+e.message;payBtn.disabled=false;}
+    });
+  }
   function showOrderDetail(r){
     const box=el('orderDetail');box.replaceChildren();box.classList.remove('hidden');
     const h=document.createElement('h2');h.textContent='訂單詳情｜'+textOf(r,['orderNumber','orderNo']);box.append(h);
-    const tip=document.createElement('p');tip.className='status warn';tip.textContent='此頁僅供主購核對資料。銀行實際入帳、付款確認與正式通知仍需人工審核。';box.append(tip);
+    const tip=document.createElement('p');tip.className='status warn';tip.textContent='可在此頁更新費用、物流資料與人工核帳；付款必須先確認實際入帳。';box.append(tip);
     const amount=v=>Number(v)>0?'NT$'+fmt(v):'未記錄／待核對（0 不視為已確認）';
     const rows=[
       ['客戶',r.customerName],['Email',r.email],['社群',[(r.socialPlatform||''),(r.socialNickname||'')].filter(Boolean).join(' · ')],
@@ -174,6 +266,7 @@
       const v=document.createElement('span');v.textContent=String(val||'尚未記錄');v.style.overflowWrap='anywhere';
       item.append(k,v);box.append(item);
     });
+    ownerActions(box,r);
     box.scrollIntoView({behavior:'smooth',block:'start'});
   }
   function renderOrders(){
