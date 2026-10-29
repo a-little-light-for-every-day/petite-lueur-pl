@@ -25,6 +25,17 @@ if (data.siteSettings) {
 const encoded = Buffer.from(JSON.stringify(data), 'utf8').toString('base64url');
 html = html.replace(payloadPattern, (_, before, _old, after) => before + encoded + after);
 
+// Allow slow Notion-backed public catalog refresh to complete in the background.
+// The existing 12s UI race and 45s transport timeout cut off valid ~60s GAS work.
+// These replacements affect ONLY the GitHub Pages build, not the GAS storefront.
+const shortEnhancementTimeout = "new Promise((_,reject)=>setTimeout(()=>reject(new Error('enhancement timeout')),12000))";
+const shortTransportTimeout = "reject(new Error('服務連線逾時，請稍後重試'));},45000)";
+if (!html.includes(shortEnhancementTimeout) || !html.includes(shortTransportTimeout)) {
+  throw new Error('Storefront RPC timeout source was changed; audit before publishing');
+}
+html = html.replace(shortEnhancementTimeout, "new Promise((_,reject)=>setTimeout(()=>reject(new Error('enhancement timeout')),90000))");
+html = html.replace(shortTransportTimeout, "reject(new Error('服務連線逾時，請稍後重試'));},110000)");
+
 // The actual customer actions use the origin-restricted Apps Script bridge.
 // The existing customer-facing layout is unchanged, including email OTP lookup.
 html = html.replace('<body>', '<body data-pl-public-site="live">');
