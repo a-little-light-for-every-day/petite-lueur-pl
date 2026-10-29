@@ -81,7 +81,7 @@
         <div class="section" id="section-campaigns"><h1>團次與商品</h1><p class="lead">只在確認後才公開商品；商品照片使用官方原圖。</p><div class="row"><button class="btn" id="campaignsTabBtn">團次</button><button class="btn" id="productsTabBtn">商品</button></div><input id="catalogSearch" class="search" style="margin:12px 0" placeholder="搜尋作品、團次、商品編號"><div id="catalogList" class="list"></div><div id="catalogDetail" class="card hidden" style="margin-top:16px"></div></div>
         <div class="section" id="section-fulfillment"><h1>採購、入庫、二補與出貨</h1><p class="lead">按既有 Notion／Apps Script 資料查看履約狀態；訂單修改及核帳已整合於「客戶訂單」；其他採購與集運仍由原工作台管理。</p><div id="fulfillList" class="list"></div></div>
         <div class="section" id="section-finance"><h1>財務與對帳</h1><p class="lead">財務成本僅主購可見；不向客人公開實刷、利潤與銀行資訊。</p><div id="financeList" class="list"></div></div>
-        <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
+        <div class="section" id="section-system"><h1>資料同步狀態</h1><div class="card stack"><p>來源：Apps Script／Notion → 已核准公開商品 → GitHub Pages／LINE。</p><p class="status warn">跨系統逐欄同步及衝突解決仍需端到端驗收。這個頁面不會自動解決或覆寫衝突。</p><p id="ownerBridgeCheck" class="status warn">管理寫入接口待確認；診斷只傳送無效識別碼，不會更動任何紀錄。</p><a href="https://docs.google.com/spreadsheets/d/1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI/edit" target="_blank" rel="noopener">私人同步衝突與紀錄表</a><a href="https://app.notion.com/p/3ea52485b660813186acc7629df76004" target="_blank" rel="noopener">原 Notion 管理規格</a></div></div>
         <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><div><strong>管理功能：訂單、商品與詢價可直接更新</strong><div class="tiny">目前支援訂單費用、追蹤號碼、人工核帳、商品售價與上架狀態、團次收款流程及詢價處理；採購、集運建立與出貨進階作業仍使用原工作台。</div></div><a class="btn" href="https://script.google.com/macros/s/AKfycbx4PHYxXV1YMsA4h9PCduQ0pAStXFq8TdQV2bEPt3lxr2x-ciq6zNJmFF-Gx1ByTgtYhQ/exec?admin=1" target="_blank" rel="noopener">原工作台操作</a></div></div>
       </main>
     </div>
@@ -417,11 +417,28 @@
       c.append(title,meta,values);finance.append(c);
     });
   }
+  async function checkOwnerBridge(){
+    const area=el('ownerBridgeCheck');
+    const tests=[
+      ['updateProduct',{pageId:'invalid',fields:{status:'預購中'}},'紀錄識別碼或修改內容有誤'],
+      ['reviewWish',{pageId:'invalid',fields:{status:'待主購確認'}},'紀錄識別碼或修改內容有誤'],
+      ['updateCampaignWorkflow',{campaignId:'invalid',workflow:'PREPAY'},'團次與流程參數有誤']
+    ];
+    area.textContent='正在檢查商品、團次與詢價管理接口…';area.className='status warn';
+    const results=await Promise.all(tests.map(async([action,payload,expected])=>{
+      try{await rpc(action,[payload]);return false;}
+      catch(e){return String(e.message||'').includes(expected);}
+    }));
+    const ready=results.every(Boolean);
+    area.textContent=ready?'管理寫入接口已就緒：商品、團次、詢價三項安全驗證通過（未修改任何資料）。':'管理寫入接口未完全就緒；請勿使用新頁面的寫入功能，先使用原工作台。';
+    area.className='status '+(ready?'ok':'bad');
+  }
   function openDashboard(data){
     if(!data||data.ok!==true)throw new Error('主購身分未通過');
     state.campaigns=Array.isArray(data.campaigns)?data.campaigns:[];
     state.products=Array.isArray(data.products)?data.products:[];
     showPrivate();
+    checkOwnerBridge().catch(()=>{});
     label('loadNotice','正在讀取訂單與詢價，尚未完成前不顯示零元結論。');
     rpc('operationsCore').then(res=>{
       if(!res||res.ok===false)throw new Error(res&&res.message||'讀取失敗');
