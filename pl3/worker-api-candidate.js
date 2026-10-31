@@ -1,5 +1,6 @@
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
+import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
 import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
@@ -272,6 +273,20 @@ export default {
         const result=response({ok:true},200,origin);
         result.headers.set("Set-Cookie",clearSessionCookie());
         return result;
+      }
+      if(url.pathname==="/api/admin/formal-sync/status"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await inspectFormalSync(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/formal-sync/preview"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        const id=url.searchParams.get("order_id")||"";
+        if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))fail("Invalid order ID");
+        return response({ok:true,preview:await formalProjectionForOrder(env,id)},200,origin);
+      }
+      if(url.pathname==="/api/admin/formal-sync/drain"&&request.method==="POST") {
+        await authorizedOwner(request,env);
+        return response(await drainFormalOutbox(env),200,origin);
       }
       if(url.pathname==="/api/admin/fulfillments"&&request.method==="GET") {
         await authorizedOwner(request,env);

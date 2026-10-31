@@ -13,10 +13,12 @@ const names = [
   "SESSION_SECRET",
 ];
 
-// Optional until the isolated QA receiver has been deployed and verified.
-// Never silently publish only part of a sync destination configuration.
-const optionalNames = process.env.PL3_SYNC_WEBHOOK_SECRET
-  ? ["PL3_SYNC_WEBHOOK_SECRET"] : [];
+// Optional feature secrets; omitted integrations remain locked.
+// Formal sync requires its own cohort/URL/enable gates in Worker runtime variables.
+const optionalNames = [
+  ...(process.env.PL3_SYNC_WEBHOOK_SECRET ? ["PL3_SYNC_WEBHOOK_SECRET"] : []),
+  ...(process.env.PL3_FORMAL_SYNC_SECRET ? ["PL3_FORMAL_SYNC_SECRET"] : []),
+];
 const missing = names.filter((name) => !process.env[name]);
 if (missing.length) {
   console.error(
