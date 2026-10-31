@@ -1,4 +1,5 @@
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
+import { drainOutbox } from "./sync-outbox.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
@@ -223,6 +224,10 @@ export default {
       if(url.pathname==="/api/admin/orders"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await ownerOrders(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/sync/drain"&&request.method==="POST") {
+        await authorizedOwner(request,env);
+        return response(await drainOutbox(env),200,origin);
       }
       if(url.pathname==="/api/admin/payment-reports"&&request.method==="GET") {
         await authorizedOwner(request,env);
