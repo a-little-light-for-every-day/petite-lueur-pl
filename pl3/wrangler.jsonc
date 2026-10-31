@@ -12,7 +12,8 @@
     }
   ],
   "vars": {
-    "GMAIL_SENDER": "petitelueur.pl@gmail.com"
+    "GMAIL_SENDER": "petitelueur.pl@gmail.com",
+    "PL3_ADMIN_EMAIL": "petitelueur.pl@gmail.com"
   },
   "secrets": {
     "required": [
