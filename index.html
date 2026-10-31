@@ -2600,12 +2600,15 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   // Preserve all approved Aikatsu SKUs if the remote catalog is on an older cache.
   function plEnsureAikatsuCatalog(incoming){
     const list=Array.isArray(incoming)?incoming.slice():[];
-    const full=(INITIAL_STORE_DATA.products||[]).filter(p=>p.campaignCode==='PL-AIKATSU-261031'&&p.published!==false);
+    const full=(window.PL_STATIC_HOSTED?[]:(INITIAL_STORE_DATA.products||[])).filter(p=>p.campaignCode==='PL-AIKATSU-261031'&&p.published!==false);
     const seen=new Set(list.map(p=>String(p.code||'').trim()));
     for(const p of full){const code=String(p.code||'').trim();if(code&&!seen.has(code)){list.push(p);seen.add(code);}}
     return list;
   }
   function renderEmbeddedStoreData(){
+    // Static GitHub Pages must never display the embedded, potentially stale snapshot.
+    // Fetch the authoritative public catalog from Apps Script after the shop is visible.
+    if(window.PL_STATIC_HOSTED)return false;
     const res=INITIAL_STORE_DATA||{};
     siteSettings=res.siteSettings||siteSettings||{};
     orderMaxTwd=res.orderMaxTwd||orderMaxTwd;
