@@ -176,6 +176,18 @@ async function ownerOrders(env) {
   ).all();
   return {ok:true,orders:result.results||[]};
 }
+async function ownerFulfillments(env) {
+  const result=await env.DB.prepare(
+    "SELECT f.id,f.status,f.updated_at,f.purchase_reference,f.warehouse_tracking,f.international_tracking,f.taiwan_tracking,oi.order_id,oi.product_name,oi.variant,oi.quantity,o.group_id,o.customer_email,o.customer_name,o.payment_status FROM fulfillments f JOIN order_items oi ON oi.id=f.order_item_id JOIN orders o ON o.id=oi.order_id ORDER BY f.updated_at DESC LIMIT 100"
+  ).all();
+  return {ok:true,fulfillments:result.results||[]};
+}
+async function ownerAuditEvents(env) {
+  const result=await env.DB.prepare(
+    "SELECT id,actor_type,action,object_type,object_id,created_at FROM audit_events ORDER BY created_at DESC LIMIT 100"
+  ).all();
+  return {ok:true,events:result.results||[]};
+}
 async function ownerPaymentReports(env) {
   const result=await env.DB.prepare(
     "SELECT pr.id,pr.order_id,pr.method,pr.amount_twd,pr.reference_last5,pr.note,pr.status,pr.created_at,o.customer_email,o.customer_name,o.total_twd,o.payment_status FROM payment_reports pr JOIN orders o ON o.id=pr.order_id WHERE pr.status='pending_review' ORDER BY pr.created_at DESC LIMIT 100"
@@ -221,6 +233,14 @@ export default {
       }
       if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env),200,origin);
       if(url.pathname==="/api/auth/verify-code"&&request.method==="POST")return response(await otpVerify(await jsonBody(request),env),200,origin);
+      if(url.pathname==="/api/admin/fulfillments"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await ownerFulfillments(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/audit-events"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await ownerAuditEvents(env),200,origin);
+      }
       if(url.pathname==="/api/admin/orders"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await ownerOrders(env),200,origin);
