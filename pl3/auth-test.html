@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>PL 3.0｜安全查單測試</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;color:#29333f;background:#faf8f7}
+    *{box-sizing:border-box}body{margin:0;padding:24px 16px}main{max-width:540px;margin:36px auto;background:#fff;border:1px solid #e9e3e3;border-radius:20px;padding:clamp(20px,5vw,38px);box-shadow:0 12px 38px #392c2410}
+    .eyebrow{font-size:.78rem;letter-spacing:.14em;color:#886b74;text-transform:uppercase}h1{font-size:1.6rem;margin:.5rem 0}p{line-height:1.65;color:#586270}label{display:block;font-weight:600;margin:20px 0 8px}
+    input{width:100%;border:1px solid #c9c8ca;border-radius:10px;padding:13px 14px;font:inherit;font-size:1rem}input:focus{outline:3px solid #e7cad5;outline-offset:1px}
+    button{font:inherit;cursor:pointer;border:0;border-radius:10px;background:#805c6d;color:white;padding:12px 19px;font-weight:600;min-height:46px}
+    button.secondary{background:#f2ebee;color:#5d4150}button:disabled{cursor:wait;opacity:.65}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.hint{font-size:.85rem;color:#687280}
+    .status{padding:12px 14px;border-radius:10px;margin-top:20px;background:#f4f3f1;line-height:1.5;white-space:pre-wrap}
+    .status.error{background:#fff0ef;color:#a23c37}.status.success{background:#edf7f1;color:#216b46}
+    .order{border:1px solid #ece8e8;border-radius:12px;padding:14px;margin-top:12px}.order dl{display:grid;grid-template-columns:110px 1fr;gap:6px;margin:0}.order dt{color:#66717b}.order dd{margin:0;overflow-wrap:anywhere}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Petite Lueur PL · Staging</div>
+    <h1>安全查單｜PL 3.0 測試</h1>
+    <p>此頁僅供測試新系統，不代表正式訂單已遷移。現有 PL 2.0 訂單請繼續使用原網站查詢。</p>
+
+    <section id="email-step">
+      <form id="request-form">
+        <label for="email">訂單使用的 Email</label>
+        <input id="email" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@example.com" required>
+        <div class="actions"><button id="request-button" type="submit">寄送驗證碼</button></div>
+      </form>
+      <p class="hint">驗證碼 10 分鐘內有效。每個 Email 每小時最多請求 5 次。</p>
+    </section>
+
+    <section id="code-step" hidden>
+      <p id="sent-to" class="hint"></p>
+      <form id="verify-form">
+        <label for="code">六位數 Email 驗證碼</label>
+        <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" minlength="6" pattern="[0-9]{6}" placeholder="000000" required>
+        <div class="actions">
+          <button id="verify-button" type="submit">驗證並查詢訂單</button>
+          <button id="back-button" class="secondary" type="button">更換 Email</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="orders-step" hidden>
+      <p id="signed-in-as"></p>
+      <div class="actions">
+        <button id="refresh-button" type="button">重新查詢</button>
+        <button id="sign-out-button" class="secondary" type="button">登出</button>
+      </div>
+      <h2>我的測試訂單</h2>
+      <div id="orders-list"></div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <p class="hint">安全提醒：驗證碼及登入憑證不會保存在瀏覽器的長期儲存空間。關閉或重新整理頁面後需要重新驗證。</p>
+  </main>
+  <script>
+    "use strict";
+    const API = "https://pl3-staging-api.petitelueur-pl.workers.dev";
+    const byId = (id) => document.getElementById(id);
+    let token = null;
+    let expiry = 0;
+    let selectedEmail = "";
+    let busy = false;
+
+    function status(message, kind = "") {
+      const el = byId("status");
+      el.textContent = message;
+      el.className = "status" + (kind ? " " + kind : "");
+      el.hidden = !message;
+    }
+    function show(step) {
+      for (const id of ["email-step", "code-step", "orders-step"]) byId(id).hidden = id !== step;
+    }
+    function loading(value) {
+      busy = value;
+      for (const id of ["request-button", "verify-button", "refresh-button"]) byId(id).disabled = value;
+    }
+    async function call(path, options = {}) {
+      let response;
+      try {
+        response = await fetch(API + path, {
+          ...options,
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          cache: "no-store"
+        });
+      } catch {
+        throw new Error("無法連線至測試 API。請確認網路，或稍後再試。");
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true) {
+        const messages = {
+          "Too many requests": "這個 Email 的請求次數已達上限，請稍後再試。",
+          "Code expired or invalid": "驗證碼錯誤、過期或嘗試次數已達上限。",
+          "Code already used": "驗證碼已使用，請重新取得。",
+          "Service not configured": "測試服務設定尚未完成。",
+          "Email service unavailable": "目前暫時無法寄送驗證碼。",
+          "Authentication required": "登入已失效，請重新驗證。",
+          "Expired session": "登入已過期，請重新驗證。"
+        };
+        throw new Error(messages[data.error] || "操作失敗（HTTP " + response.status + "）。請稍後再試。");
+      }
+      return data;
+    }
+    byId("request-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const email = byId("email").value.trim().toLowerCase();
+      if (!byId("email").checkValidity()) return byId("email").reportValidity();
+      loading(true); status("正在寄送驗證碼……");
+      try {
+        await call("/api/auth/request-code", { method:"POST", body:JSON.stringify({email}) });
+        selectedEmail = email;
+        byId("sent-to").textContent = "已寄送至 " + email + "，請查看收件匣。";
+        byId("code").value = "";
+        show("code-step");
+        byId("code").focus();
+        status("驗證信已送出。請在 10 分鐘內輸入六位數驗證碼。", "success");
+      } catch (error) { status(error.message, "error"); }
+      finally { loading(false); }
+    });
+    byId("verify-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const code = byId("code").value.trim();
+      if (!/^[0-9]{6}$/.test(code)) return status("請輸入六位數字。", "error");
+      loading(true); status("正在驗證……");
+      try {
+        const result = await call("/api/auth/verify-code", { method:"POST", body:JSON.stringify({email:selectedEmail,code}) });
+        token = result.token;
+        expiry = Date.now() + Math.min(Number(result.expires_in) || 3600, 3600) * 1000;
+        byId("code").value = "";
+        byId("signed-in-as").textContent = "已驗證：" + selectedEmail;
+        show("orders-step");
+        await loadOrders();
+      } catch (error) { status(error.message, "error"); }
+      finally { loading(false); }
+    });
+    async function loadOrders() {
+      if (!token || Date.now() >= expiry) {
+        signOut();
+        return status("登入已過期，請重新驗證。", "error");
+      }
+      loading(true);
+      status("正在查詢訂單……");
+      try {
+        const data = await call("/api/orders", { headers:{ Authorization:"Bearer " + token } });
+        const list = byId("orders-list");
+        list.replaceChildren();
+        if (!Array.isArray(data.orders)) throw new Error("訂單資料格式不正確。");
+        if (!data.orders.length) {
+          const empty = document.createElement("p");
+          empty.textContent = "目前沒有 PL 3.0 測試訂單。PL 2.0 舊訂單尚未遷移。";
+          list.append(empty);
+        }
+        for (const order of data.orders) {
+          const article = document.createElement("article");
+          article.className = "order";
+          const dl = document.createElement("dl");
+          for (const [label, value] of [
+            ["訂單編號",order.id],["團次",order.group_id],
+            ["訂單狀態",order.status],["付款狀態",order.payment_status],
+            ["金額","NT$ " + Number(order.total_twd || 0).toLocaleString("zh-TW")],
+            ["建立時間",order.created_at]
+          ]) {
+            const dt = document.createElement("dt"), dd = document.createElement("dd");
+            dt.textContent = label; dd.textContent = String(value ?? "—");
+            dl.append(dt, dd);
+          }
+          article.append(dl); list.append(article);
+        }
+        status("安全查單成功，共 " + data.orders.length + " 筆測試訂單。", "success");
+      } catch (error) {
+        if (/登入|過期/.test(error.message)) signOut();
+        status(error.message, "error");
+      } finally { loading(false); }
+    }
+    function signOut() {
+      token = null; expiry = 0; selectedEmail = "";
+      byId("code").value = "";
+      byId("orders-list").replaceChildren();
+      show("email-step");
+    }
+    byId("refresh-button").addEventListener("click", () => { if (!busy) void loadOrders(); });
+    byId("back-button").addEventListener("click", () => { if (!busy) { signOut(); status(""); } });
+    byId("sign-out-button").addEventListener("click", () => { signOut(); status("已登出。", "success"); });
+  </script>
+</body>
+</html>
