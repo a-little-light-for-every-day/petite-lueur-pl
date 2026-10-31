@@ -77,3 +77,15 @@ test("owner reads fulfillment queue and audit history", async () => {
   assert.equal(b.status, 200);
   assert.deepEqual(b.data.events, events);
 });
+
+test("staging owner dashboard serves static no-cache HTML without token exposure", async () => {
+  const response = await worker.fetch(new Request("https://worker.example/admin-test"), {
+    DB: db, PL3_ADMIN_EMAIL: owner, SESSION_SECRET: secret
+  });
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /text\/html/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.match(html, /主購工作台/);
+  assert.doesNotMatch(html, /localStorage\\.setItem/);
+});
