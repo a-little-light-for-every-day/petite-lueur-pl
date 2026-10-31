@@ -9,5 +9,17 @@
       "database_name": "pl3-staging",
       "database_id": "cc08ca47-1b59-435c-8ac9-11d0a1c703e9"
     }
-  ]
+  ],
+  "vars": {
+    "GMAIL_SENDER": "petitelueur.pl@gmail.com"
+  },
+  "secrets": {
+    "required": [
+      "GMAIL_CLIENT_ID",
+      "GMAIL_CLIENT_SECRET",
+      "GMAIL_REFRESH_TOKEN",
+      "OTP_PEPPER",
+      "SESSION_SECRET"
+    ]
+  }
 }
