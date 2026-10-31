@@ -38,25 +38,41 @@ small{color:#716a72}a{color:#755063}[hidden]{display:none!important}
 <section id="tab-history" hidden><div class="card"><h2>📜 管理員操作歷史</h2><div id="history-list"></div></div></section>
 </section>
 <div id="message" class="alert" role="status" aria-live="polite" hidden></div>
-<p class="hint">測試版不長期儲存登入憑證。手機常駐登入需另設安全 HttpOnly Session Cookie 與續期機制，不能把管理員 Bearer Token 放進 localStorage。正式付款狀態只能依實際銀行入帳人工核對。</p>
+<p class="hint">此裝置登入最多保留 30 天；連續 7 天未使用或按「登出」會失效。登入憑證存於僅伺服器可讀的安全 Cookie，不會存入 localStorage。正式付款狀態只能依實際銀行入帳人工核對。</p>
 </main>
 <script>
 "use strict";
-const API="https://pl3-staging-api.petitelueur-pl.workers.dev";
 const $=id=>document.getElementById(id);
-let token="",expiresAt=0,ownerEmail="",busy=false,records={orders:[],reports:[],fulfillments:[],events:[]};
+let sessionLive=false,ownerEmail="",busy=false,records={orders:[],reports:[],fulfillments:[],events:[]};
 function msg(t,kind=""){const x=$("message");x.textContent=t;x.className="alert "+kind;x.hidden=!t;}
 function node(tag,text="",cls=""){const e=document.createElement(tag);e.textContent=String(text??"");if(cls)e.className=cls;return e;}
 function addLine(parent,heading,details=[]){const wrap=node("div","","item");wrap.append(node("strong",heading));const meta=node("div","","meta");for(const value of details)meta.append(node("span",value,"tag"));wrap.append(meta);parent.append(wrap);return wrap;}
 function empty(parent,text){if(!parent.childElementCount)parent.append(node("p",text,"hint"));}
-function valid(){if(!token||Date.now()>=expiresAt){signOut();throw new Error("登入已過期，請重新取得 Email 驗證碼。");}}
-async function request(path,method="GET",body){if(path.startsWith("/api/admin/"))valid();const headers={"Content-Type":"application/json"};if(token)headers.Authorization="Bearer "+token;let response;
-try{response=await fetch(API+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),cache:"no-store"});}catch{throw new Error("連線失敗，請稍後再試。");}
-const json=await response.json().catch(()=>({}));if(!response.ok||json.ok!==true)throw new Error(json.error||"API 操作失敗（"+response.status+"）");return json;}
-function signOut(){token="";expiresAt=0;ownerEmail="";$("login").hidden=false;$("workspace").hidden=true;$("verify-form").hidden=true;$("otp").value="";}
+async function request(path,method="GET",body,bearer=""){
+  const headers={"Content-Type":"application/json"};
+  if(method!=="GET")headers["X-PL3-Admin-Action"]="1";
+  if(bearer)headers.Authorization="Bearer "+bearer;
+  let res;
+  try{res=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),cache:"no-store",credentials:"same-origin"});}
+  catch{throw new Error("連線失敗，請稍後再試。");}
+  const json=await res.json().catch(()=>({}));
+  if(res.status===401&&sessionLive&&path.startsWith("/api/admin/"))signOut();
+  if(!res.ok||json.ok!==true)throw new Error(json.error||"API 操作失敗（"+res.status+"）");
+  return json;
+}
+function signOut(){sessionLive=false;ownerEmail="";$("login").hidden=false;$("workspace").hidden=true;$("verify-form").hidden=true;$("otp").value="";}
+async function restoreSession(){
+  try {
+    const data=await request("/api/admin/session");
+    sessionLive=true;ownerEmail=data.email;
+    $("signed-in").textContent="已驗證："+ownerEmail;
+    $("login").hidden=true;$("workspace").hidden=false;
+    await refresh();
+  }catch(err){if(!sessionLive){signOut();if(!/Authentication required|Session expired|revoked/.test(err.message))msg(err.message,"error");}else msg(err.message,"error");}
+}
 function setBusy(value){busy=value;for(const b of document.querySelectorAll("button"))b.disabled=value;}
 $("request-form").addEventListener("submit",async e=>{e.preventDefault();if(busy)return;setBusy(true);msg("正在寄送驗證碼……");try{ownerEmail=$("email").value.trim().toLowerCase();await request("/api/auth/request-code","POST",{email:ownerEmail});$("verify-form").hidden=false;$("otp").focus();msg("驗證碼已寄出，請在 10 分鐘內輸入。","ok");}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
-$("verify-form").addEventListener("submit",async e=>{e.preventDefault();if(busy)return;setBusy(true);try{const data=await request("/api/auth/verify-code","POST",{email:ownerEmail,code:$("otp").value.trim()});token=data.token;expiresAt=Date.now()+Math.min(Number(data.expires_in)||3600,3600)*1000;$("otp").value="";$("signed-in").textContent="已驗證："+ownerEmail;$("login").hidden=true;$("workspace").hidden=false;await refresh();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
+$("verify-form").addEventListener("submit",async e=>{e.preventDefault();if(busy)return;setBusy(true);try{const data=await request("/api/auth/verify-code","POST",{email:ownerEmail,code:$("otp").value.trim()});await request("/api/admin/session/start","POST",undefined,data.token);sessionLive=true;$("otp").value="";$("signed-in").textContent="已驗證："+ownerEmail;$("login").hidden=true;$("workspace").hidden=false;await refresh();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 async function refresh(){const [o,r,f,a]=await Promise.all([request("/api/admin/orders"),request("/api/admin/payment-reports"),request("/api/admin/fulfillments"),request("/api/admin/audit-events")]);records={orders:o.orders||[],reports:r.reports||[],fulfillments:f.fulfillments||[],events:a.events||[]};render();msg("後台資料已更新。","ok");}
 function isQa(group){return String(group||"").startsWith("PL3-QA-");}
 function render(){renderReports();renderFulfillments();renderOrders();renderDeadlines();renderHistory();}
@@ -71,5 +87,6 @@ function renderDeadlines(){const soon=$("soon-list"),late=$("late-list");soon.re
 function renderHistory(){const el=$("history-list");el.replaceChildren();for(const e of records.events)addLine(el,e.action,[e.object_type,e.object_id,e.created_at]);empty(el,"尚無操作歷史。");}
 for(const b of document.querySelectorAll("nav button"))b.addEventListener("click",()=>{const tab=b.dataset.tab;for(const n of document.querySelectorAll("nav button"))n.classList.toggle("active",n===b);for(const key of ["now","soon","late","history"])$("tab-"+key).hidden=key!==tab;});
 $("refresh").addEventListener("click",()=>{if(busy)return;setBusy(true);refresh().catch(err=>msg(err.message,"error")).finally(()=>setBusy(false));});
-$("logout").addEventListener("click",()=>{signOut();msg("已登出。","ok");});
+$("logout").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await request("/api/admin/session/logout","POST");signOut();msg("已安全登出，此裝置的登入工作階段已撤銷。","ok");}catch(err){msg("登出失敗，請重試："+err.message,"error");}finally{setBusy(false);}});
+void restoreSession();
 </script></body></html>

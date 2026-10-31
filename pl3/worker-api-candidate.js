@@ -1,6 +1,7 @@
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
 import adminHtml from "./admin-html.js";
+import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
@@ -167,8 +168,11 @@ async function orders(email,env) {
 }
 async function authorizedOwner(request,env) {
   requireConfig(env,"PL3_ADMIN_EMAIL");
-  const email=await authorizedEmail(request,env);
+  // PowerShell QA uses a short-lived bearer. Only same-origin admin UI uses cookies.
+  const bearer=request.headers.get("Authorization");
+  const email=bearer ? await authorizedEmail(request,env) : (await readAdminSession(request,env)).email;
   if(email!==emailOf(env.PL3_ADMIN_EMAIL)) fail("Forbidden",403);
+  if(!bearer&&request.method!=="GET") requireSameOriginAction(request);
   return email;
 }
 async function ownerOrders(env) {
@@ -244,6 +248,31 @@ export default {
       }
       if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env),200,origin);
       if(url.pathname==="/api/auth/verify-code"&&request.method==="POST")return response(await otpVerify(await jsonBody(request),env),200,origin);
+      if(url.pathname==="/api/admin/session/start"&&request.method==="POST") {
+        // Explicit OTP proof, never create a permanent session from an existing cookie.
+        if(!request.headers.get("Authorization")) fail("Authentication required",401);
+        requireSameOriginAction(request);
+        const owner=await authorizedOwner(request,env);
+        const session=await createAdminSession(env,owner);
+        const result=response({ok:true,email:owner,expires_at:session.expiresAt},200,origin);
+        result.headers.set("Set-Cookie",sessionCookie(session.token));
+        return result;
+      }
+      if(url.pathname==="/api/admin/session"&&request.method==="GET") {
+        const owner=await authorizedOwner(request,env);
+        const session=await readAdminSession(request,env);
+        return response({ok:true,email:owner,expires_at:session.expiresAt},200,origin);
+      }
+      if(url.pathname==="/api/admin/session/logout"&&request.method==="POST") {
+        requireSameOriginAction(request);
+        const session=await readAdminSession(request,env);
+        requireConfig(env,"PL3_ADMIN_EMAIL");
+        if(session.email!==emailOf(env.PL3_ADMIN_EMAIL)) fail("Forbidden",403);
+        await revokeAdminSession(env,session);
+        const result=response({ok:true},200,origin);
+        result.headers.set("Set-Cookie",clearSessionCookie());
+        return result;
+      }
       if(url.pathname==="/api/admin/fulfillments"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await ownerFulfillments(env),200,origin);
