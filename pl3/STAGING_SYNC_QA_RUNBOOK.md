@@ -1,6 +1,6 @@
 # PL3 isolated Notion + Google Sheets sync QA runbook
 
-**Status:** Receiver code committed. **Not deployed or authorized** until the owner performs steps below. No PL2 records, customers, or live sheets may be used for this test.
+**Status:** Receiver code committed; QA settings prepared. Trigger a fresh Cloudflare Builds upload after setting the Build Secret. **Not deployed or authorized** until the owner performs steps below. No PL2 records, customers, or live sheets may be used for this test.
 
 ## Architecture
 
