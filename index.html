@@ -2211,7 +2211,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const name=esc(p.title||'商品');
     const id=String(p.id||'');
     const canOrder=activeMode!=='news'&&mode==='formal'&&isOrderable(p)&&!p.soldOut;
-    const status=activeMode==='news'?'情報參考':canOrder?'可申請訂購':mode==='news'?'情報參考':'詢問確認';
+    const status=activeMode==='news'?'情報參考':canOrder?'可申請訂購':mode==='news'?'情報參考':(window.PL_STATIC_HOSTED&&!plCatalogVerified?'即時核對中':'詢問確認');
     return `<div class="plSplitItem" role="listitem">
       <div class="plSplitItemMain">
         <div class="plSplitItemTitle">${name}</div>
