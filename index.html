@@ -1775,6 +1775,10 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         if(remote)send();else waiters.push(send);
       });
     };
+    // Start the Google Apps Script bridge while the visitor reads the page.
+    // The checkout itself still waits for verified live product data.
+    if(document.body)ensureFrame();
+    else document.addEventListener('DOMContentLoaded',ensureFrame,{once:true});
   })();
 </script>
 <script id="plStoreMainCode" type="text/plain">
@@ -1906,6 +1910,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   let activeMode='all';let products=[];let campaigns=[];let newsItems=plKimiShinuNormalizeProducts(INITIAL_STORE_DATA.news||[]);let lookupToken='';let lookupOtpTimer=null;let activeKind='全部';let activeCampaign='全部';let activeType='全部';let viewMode=localStorage.getItem('pl-catalog-view-v9.48.13')||'list';let orderMaxTwd=22000;let siteSettings={};let cart=loadCart();
   let plSplitGroups=[];let plSplitLastRefresh='';let plSplitLoading=false;let plSplitActiveGroupId='';
   let plCatalogInitFinished=false, plCatalogBootStarted=false, plCatalogLoaded=false;
+  let plCatalogVerified=!window.PL_STATIC_HOSTED; // Static preview is never orderable until live confirmation.
   const $=id=>document.getElementById(id);
   function call(name,args=[]){
     if(window.PL_STATIC_HOSTED) return window.plGithubRpc(name,args);
@@ -2506,7 +2511,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }
   function isOrderable(p){
     const statuses=productStatuses(p);
-    return plPublicCampaignOpen(p) && storeMode(p)==='formal' && statuses.some(s=>['預購中','現貨','少量現貨'].includes(s))
+    return (!window.PL_STATIC_HOSTED || plCatalogVerified) && plPublicCampaignOpen(p) && storeMode(p)==='formal' && statuses.some(s=>['預購中','現貨','少量現貨'].includes(s))
       && !deadlineExpired(p.preorderDeadline)
       && Number(p.price)>0
   }
@@ -2606,9 +2611,42 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     return list;
   }
   function renderEmbeddedStoreData(){
-    // Static GitHub Pages must never display the embedded, potentially stale snapshot.
-    // Fetch the authoritative public catalog from Apps Script after the shop is visible.
-    if(window.PL_STATIC_HOSTED)return false;
+    if(window.PL_STATIC_HOSTED){
+      // Preview only: campaigns explicitly confirmed live on 2026/11/01.
+      // 33 superseded/closed records from the legacy snapshot are NEVER rendered.
+      const publicCampaigns=new Set([
+        'PL-AIKATSU-261031','PRICAFE-KOIDOMO-261102',
+        'NEOWING-TAMON-KAMIO-261108','NEOWING-KIMISHINU-FIG-261028',
+        'CSFRONT-KIMISHINU-261117','ENSKY-TAMON-PUIMARU-261101',
+        'CRUX-TAMON-CANDY-2701','CRUX-TAMON-CANDY-2703',
+        'HAK-TAMON-ICHUERU-261115'
+      ]);
+      const publicStandalone=new Set(['NEOBK-2721134','NEOGDS-1012161']);
+      const rows=Array.isArray(INITIAL_STORE_DATA.products)?INITIAL_STORE_DATA.products:[];
+      const preview=rows.filter(p=>p&&p.published===true&&(
+        publicCampaigns.has(String(p.campaignCode||'').trim())||
+        publicStandalone.has(String(p.code||'').trim())
+      )).map(p=>{
+        if(String(p.campaignCode||'').trim()!=='PL-AIKATSU-261031')return p;
+        const note=String(p.note||'').replace(/PL\s*10\/31\s*12:00\s*收單/g,'PL 第一批已結單；加開收單至 11/1 20:00');
+        return {...p,note,preorderDeadline:'2026-11-01T20:00:00+08:00'};
+      });
+      if(!preview.length)return false;
+      products=plKimiShinuNormalizeProducts(preview);
+      newsItems=Array.isArray(INITIAL_STORE_DATA.news)?plKimiShinuNormalizeProducts(INITIAL_STORE_DATA.news):[];
+      orderMaxTwd=INITIAL_STORE_DATA.orderMaxTwd||22000;
+      siteSettings=INITIAL_STORE_DATA.siteSettings||{};
+      plCatalogLoaded=true;plCatalogVerified=false;
+      const loading=$('loadMsg');
+      if(loading){
+        loading.className='statusMsg warn';
+        loading.textContent='已先顯示商品目錄；正在核對最新上架及庫存。核對完成後才可加入購物袋。';
+      }
+      renderSocialLinks();renderOnsiteLive();renderBrowseFilters();renderProducts();updateCartCount();
+      // Always revalidate through Apps Script immediately; do not accept
+      // the preview as an authoritative sale or skip the live fetch.
+      return false;
+    }
     const res=INITIAL_STORE_DATA||{};
     siteSettings=res.siteSettings||siteSettings||{};
     orderMaxTwd=res.orderMaxTwd||orderMaxTwd;
@@ -2804,10 +2842,16 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function plStartCatalogLoad(){
     if(plCatalogBootStarted)return;
     plCatalogBootStarted=true;
-    const box=$('loadMsg');if(box){box.classList.remove('hidden');box.textContent='正在載入商品資料…';}
+    const box=$('loadMsg');if(box){
+      box.classList.remove('hidden');
+      box.textContent=products.length
+        ?'已先顯示商品目錄；正在核對最新上架及庫存。核對完成後才可加入購物袋。'
+        :'正在載入商品資料…';
+    }
     bootstrap();
   }
   function plLoadCatalogWhenNeeded(){
+    if(window.PL_STATIC_HOSTED){setTimeout(plStartCatalogLoad,0);return;}
     const section=$('shop');
     if(!section || !('IntersectionObserver' in window)) {plStartCatalogLoad();return;}
     if(location.hash==='#shop' || location.hash==='#cart') {plStartCatalogLoad();return;}
@@ -2834,7 +2878,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     try{
       migrateOldTestCart();
       const res=await call('plStoreBootstrap');
-      plCatalogLoaded=true;
+      plCatalogVerified=true;plCatalogLoaded=true;
       console.info('[PL PERF] catalog_rpc_ms='+Math.round(performance.now()-plCatalogStart));
       products=plKimiShinuNormalizeProducts(plEnsureAikatsuCatalog(res.products||[]));
       campaigns=plKimiShinuNormalizeCampaigns(res.campaigns||[]);
@@ -2860,7 +2904,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       if(box){
         box.classList.remove('hidden');
         box.className='statusMsg bad';
-        box.innerHTML=`商品讀取失敗：${esc(text)}。<button class="loadRetry" type="button" onclick="retryStoreLoad()">重新載入</button>`
+        box.innerHTML=(products.length?'即時商品核對失敗；快取僅供瀏覽，暫不能加入購物袋：':'商品讀取失敗：')+esc(text)+'。<button class="loadRetry" type="button" onclick="retryStoreLoad()">重新載入</button>'
       }
     }
   }
