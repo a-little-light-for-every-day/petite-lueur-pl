@@ -172,7 +172,7 @@ async function authorizedOwner(request,env) {
 }
 async function ownerOrders(env) {
   const result=await env.DB.prepare(
-    "SELECT id,customer_email,customer_name,group_id,status,payment_status,total_twd,created_at FROM orders ORDER BY created_at DESC LIMIT 100"
+    "SELECT o.id,o.customer_email,o.customer_name,o.group_id,o.status,o.payment_status,o.total_twd,o.created_at,g.order_deadline FROM orders o LEFT JOIN groups g ON g.id=o.group_id ORDER BY o.created_at DESC LIMIT 100"
   ).all();
   return {ok:true,orders:result.results||[]};
 }
