@@ -14,7 +14,7 @@ function response(body,status=200,origin="") {
   if(origin===ORIGIN) headers["Access-Control-Allow-Origin"]=ORIGIN;
   return new Response(JSON.stringify(body),{status,headers});
 }
-function emailOf(x) { const s=String(x||"").trim().toLowerCase(); return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s)&&s.length<=254?s:null; }
+function emailOf(x) { const s=String(x||"").trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)&&s.length<=254?s:null; }
 function fail(message,status=400) { const e=new Error(message); e.status=status; throw e; }
 async function jsonBody(request) {
   if(Number(request.headers.get("content-length")||0)>32768) fail("Request too large",413);
@@ -30,7 +30,7 @@ async function tokenFor(env,email) {
 }
 async function authorizedEmail(request,env) {
   requireConfig(env,"SESSION_SECRET");
-  const match=/^Bearer ([A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)$/.exec(request.headers.get("Authorization")||"");
+  const match=/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(request.headers.get("Authorization")||"");
   if(!match) fail("Authentication required",401);
   const [payload,signature]=match[1].split(".");
   const expected=await hmac(env.SESSION_SECRET,payload);
@@ -63,7 +63,7 @@ async function otpRequest(body,env) {
 async function otpVerify(body,env) {
   requireConfig(env,"OTP_PEPPER","SESSION_SECRET");
   const email=emailOf(body.email),code=String(body.code||"");
-  if(!email||!/^\\d{6}$/.test(code)) fail("Invalid verification data");
+  if(!email||!/^\d{6}$/.test(code)) fail("Invalid verification data");
   const record=await env.DB.prepare("SELECT id,code_hash,expires_at,attempts FROM otp_codes WHERE email=? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1").bind(email).first();
   if(!record||Date.parse(record.expires_at)<=Date.now()||record.attempts>=5) fail("Code expired or invalid",401);
   const hash=await digest(env.OTP_PEPPER+":"+email+":"+code);
@@ -126,7 +126,7 @@ async function paymentReport(body,email,env) {
   const method=String(body.method||"");
   const amount=Number(body.amount_twd);
   const last5=String(body.reference_last5||"");
-  if(!orderId||!["bank_transfer","other"].includes(method)||!Number.isInteger(amount)||amount<1||amount>22000||!/^\\d{0,5}$/.test(last5))fail("Invalid payment report");
+  if(!orderId||!["bank_transfer","other"].includes(method)||!Number.isInteger(amount)||amount<1||amount>22000||!/^\d{0,5}$/.test(last5))fail("Invalid payment report");
   const own=await env.DB.prepare("SELECT id,total_twd FROM orders WHERE id=? AND customer_email=?").bind(orderId,email).first();
   if(!own)fail("Order not found",404);
   const id=crypto.randomUUID();
