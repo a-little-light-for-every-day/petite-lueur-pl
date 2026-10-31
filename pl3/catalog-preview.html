@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>PL 3.0｜D1 商品串接測試</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#46394a;background:#fcf9fb}body{max-width:860px;margin:0 auto;padding:28px 16px}h1{font-size:1.65rem}p{line-height:1.6}.card{background:#fff;border:1px solid #ebdae5;border-radius:16px;padding:20px;margin:14px 0;box-shadow:0 3px 14px #5e37500a}.muted{color:#7b6d78}.status{font-weight:700}.ok{color:#187844}.bad{color:#b32639}button{background:#865c7e;color:white;border:0;border-radius:9px;padding:10px 16px;cursor:pointer}select{padding:10px;border-radius:9px;max-width:100%;border:1px solid #d6c8d2}li{padding:8px 0;border-bottom:1px solid #f0e7ed}.price{font-weight:700}.note{background:#fff5d8;padding:12px;border-radius:10px}
+</style>
+</head>
+<body>
+<h1>Petite Lueur PL 3.0｜D1 串接測試</h1>
+<p class="note">測試頁只讀取公開團次。未公開的《偶像學園！》90 筆資料不會顯示；不提供下單或付款功能。</p>
+<section class="card"><h2>連線狀態</h2><p id="status" class="status muted">尚未測試</p><button id="refresh" type="button">重新檢查</button></section>
+<section class="card"><h2>公開團次</h2><select id="groups" aria-label="選擇公開團次" disabled><option>尚未載入</option></select><p id="summary" class="muted"></p><ul id="products"></ul></section>
+<script>
+const api = "https://pl3-staging-api.petitelueur-pl.workers.dev";
+const statusEl = document.getElementById("status");
+const groupEl = document.getElementById("groups");
+const listEl = document.getElementById("products");
+const summaryEl = document.getElementById("summary");
+async function json(path) {
+  const res = await fetch(api + path, { mode: "cors", cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw Error(data.error || "HTTP " + res.status);
+  return data;
+}
+async function loadProducts(id) {
+  listEl.replaceChildren();
+  if (!id) { summaryEl.textContent = "目前沒有公開團次。"; return; }
+  try {
+    const data = await json("/api/products?group_id=" + encodeURIComponent(id));
+    summaryEl.textContent = "公開商品：" + data.products.length + " 筆";
+    for (const product of data.products) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = product.name + (product.variant ? "｜" + product.variant : "");
+      const price = document.createElement("span");
+      price.className = "price";
+      price.textContent = "　NT$" + (product.price_twd ?? "待確認");
+      li.append(name, price); listEl.appendChild(li);
+    }
+  } catch (error) { summaryEl.textContent = "商品查詢失敗：" + error.message; }
+}
+async function refresh() {
+  statusEl.textContent = "連線中…"; statusEl.className = "status muted";
+  groupEl.disabled = true; groupEl.replaceChildren(); listEl.replaceChildren();
+  try {
+    const health = await json("/health");
+    statusEl.textContent = "D1 連線正常（" + health.database + "）";
+    statusEl.className = "status ok";
+    const data = await json("/api/groups");
+    for (const group of data.groups) {
+      const option = document.createElement("option");
+      option.value = group.id; option.textContent = group.title;
+      groupEl.appendChild(option);
+    }
+    groupEl.disabled = data.groups.length === 0;
+    await loadProducts(data.groups[0]?.id || "");
+  } catch (error) {
+    statusEl.textContent = "無法從此網域讀取 API：" + error.message + "。請確認 Worker CORS 設定。";
+    statusEl.className = "status bad";
+    summaryEl.textContent = "";
+  }
+}
+groupEl.addEventListener("change", () => loadProducts(groupEl.value));
+document.getElementById("refresh").addEventListener("click", refresh);
+refresh();
+</script>
+</body></html>
