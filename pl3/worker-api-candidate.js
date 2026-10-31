@@ -41,8 +41,50 @@ async function authorizedEmail(request,env) {
   if(!data||!emailOf(data.email)||!Number.isInteger(data.exp)||data.exp<=Date.now()/1000) fail("Expired session",401);
   return data.email;
 }
+// Gmail API only: OAuth credentials are Worker secrets, never sent to the browser.
+async function sendOtpViaGmail(env,to,code) {
+  requireConfig(env,"GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN","GMAIL_SENDER");
+  const sender=emailOf(env.GMAIL_SENDER);
+  if(!sender) fail("Invalid Gmail sender configuration",503);
+  const tokenResponse=await fetch("https://oauth2.googleapis.com/token",{
+    method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({
+      client_id:env.GMAIL_CLIENT_ID,
+      client_secret:env.GMAIL_CLIENT_SECRET,
+      refresh_token:env.GMAIL_REFRESH_TOKEN,
+      grant_type:"refresh_token"
+    })
+  });
+  if(!tokenResponse.ok) {
+    console.error("Gmail OAuth token exchange failed",tokenResponse.status);
+    fail("Email service unavailable",503);
+  }
+  const token=await tokenResponse.json();
+  if(!token.access_token) fail("Email service unavailable",503);
+  const subject="Petite Lueur 驗證碼";
+  const mail=[
+    "From: Petite Lueur PL <"+sender+">",
+    "To: "+to,
+    "Subject: =?UTF-8?B?"+btoa(String.fromCharCode(...encoder.encode(subject)))+"?=",
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    btoa(String.fromCharCode(...encoder.encode("您的驗證碼為 "+code+"，10 分鐘內有效。若非本人操作請忽略。")))
+  ].join("\r\n");
+  const sent=await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{
+    method:"POST",
+    headers:{"Authorization":"Bearer "+token.access_token,"Content-Type":"application/json"},
+    body:JSON.stringify({raw:b64(encoder.encode(mail))})
+  });
+  if(!sent.ok) {
+    console.error("Gmail send failed",sent.status);
+    fail("Unable to send verification email",503);
+  }
+}
 async function otpRequest(body,env) {
-  requireConfig(env,"OTP_PEPPER","RESEND_API_KEY","EMAIL_FROM");
+  requireConfig(env,"OTP_PEPPER","GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN","GMAIL_SENDER");
   const email=emailOf(body.email);if(!email) fail("Invalid email");
   const windowStart=new Date(Math.floor(Date.now()/3600000)*3600000).toISOString();
   const rate=await env.DB.prepare("SELECT count FROM email_rate_limits WHERE email=? AND purpose='otp' AND window_start=?").bind(email,windowStart).first();
@@ -56,8 +98,7 @@ async function otpRequest(body,env) {
     env.DB.prepare("INSERT INTO otp_codes(id,email,code_hash,expires_at) VALUES(?,?,?,?)").bind(id,email,hash,expires),
     env.DB.prepare("INSERT INTO email_rate_limits(email,purpose,window_start,count) VALUES(?,'otp',?,1) ON CONFLICT(email,purpose,window_start) DO UPDATE SET count=count+1").bind(email,windowStart)
   ]);
-  const sent=await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({from:env.EMAIL_FROM,to:[email],subject:"Petite Lueur 驗證碼",text:"您的驗證碼為 "+code+"，10 分鐘內有效。若非本人操作請忽略。"})});
-  if(!sent.ok) { console.error("OTP email provider failed",sent.status); fail("Unable to send verification email",503); }
+  await sendOtpViaGmail(env,email,code);
   return {ok:true,message:"Verification code sent"};
 }
 async function otpVerify(body,env) {
