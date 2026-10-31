@@ -136,7 +136,7 @@ async function checkout(body,email,env) {
   const selections=[];let total=0;
   for(const item of canonical) {
     const p=await env.DB.prepare("SELECT id,group_id,name,variant,price_twd,quantity_limit,status FROM products WHERE id=? AND group_id=?").bind(item.id,groupId).first();
-    if(!p||p.status!=="active"||!Number.isInteger(p.price_twd)||p.price_twd<1) fail("Product unavailable",409);
+    if(!p||!["available","active"].includes(p.status)||!Number.isInteger(p.price_twd)||p.price_twd<1) fail("Product unavailable",409);
     if(p.quantity_limit!=null&&item.quantity>p.quantity_limit) fail("Quantity limit exceeded",409);
     total+=p.price_twd*item.quantity;
     selections.push({p,quantity:item.quantity});
