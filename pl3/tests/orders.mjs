@@ -23,7 +23,7 @@ function makeDB() {
     }]]),
     products: new Map([["SKU-TEST", {
       id: "SKU-TEST", group_id: "PL3-TEST", name: "測試商品",
-      variant: "測試款", price_twd: 350, quantity_limit: 4, status: "active"
+      variant: "測試款", price_twd: 350, quantity_limit: 4, status: "available"
     }]]),
     orders: [], items: [], fulfillments: [], keys: new Map(),
     outbox: [], reports: []
