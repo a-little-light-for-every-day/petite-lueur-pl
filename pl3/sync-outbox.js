@@ -34,7 +34,7 @@ export async function drainOutbox(env, maxEvents = 3) {
   const summary = { ok: true, examined: 0, delivered: 0, retry: 0 };
   for (const event of pending.results || []) {
     const claimed = await env.DB.prepare(
-      "UPDATE sync_outbox SET status='processing',attempts=attempts+1,next_attempt_at=? WHERE id=? AND status=? AND next_attempt_at<=?"
+      "UPDATE sync_outbox SET status='processing',attempts=attempts+1,next_attempt_at=? WHERE id=? AND status=? AND (next_attempt_at IS NULL OR next_attempt_at<=?)"
     ).bind(isoAfter(120), event.id, event.status, now).run();
     if (claimed.meta?.changes !== 1) continue;
     summary.examined++;
