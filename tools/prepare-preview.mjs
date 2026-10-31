@@ -124,3 +124,15 @@ fs.writeFileSync('dist/public-catalog.json', JSON.stringify({
   generatedAt: new Date().toISOString(),
 }, null, 2) + '\n');
 
+
+// Publish only the isolated PL3 OTP test page. It is not linked from the storefront.
+// No other PL3 files (Worker code, configuration or credentials) enter public Pages.
+const pl3AuthTest = fs.readFileSync('pl3/auth-test.html', 'utf8');
+if (!pl3AuthTest.includes('PL 3.0｜安全查單測試') ||
+    !pl3AuthTest.includes('id="request-form"') ||
+    !pl3AuthTest.includes('id="verify-form"') ||
+    /GMAIL_CLIENT_SECRET|GMAIL_REFRESH_TOKEN|SESSION_SECRET|OTP_PEPPER/.test(pl3AuthTest)) {
+  throw new Error('PL3 test page failed the explicit public-file check');
+}
+fs.mkdirSync('dist/pl3', { recursive: true });
+fs.writeFileSync('dist/pl3/auth-test.html', pl3AuthTest);
