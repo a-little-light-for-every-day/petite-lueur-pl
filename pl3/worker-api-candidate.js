@@ -1,5 +1,6 @@
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
+import adminHtml from "./admin-html.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
@@ -215,6 +216,16 @@ export default {
     }
     try {
       if(!env.DB)fail("Database binding missing",503);
+      if(url.pathname==="/admin-test"&&request.method==="GET") {
+        return new Response(adminHtml,{status:200,headers:{
+          "Content-Type":"text/html; charset=utf-8",
+          "Cache-Control":"no-store",
+          "X-Content-Type-Options":"nosniff",
+          "X-Frame-Options":"DENY",
+          "Referrer-Policy":"no-referrer",
+          "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        }});
+      }
       if(url.pathname==="/health"&&request.method==="GET") {
         const row=await env.DB.prepare("SELECT 1 AS connected").first();
         return response({ok:row?.connected===1,service:"pl3-staging-api"},200,origin);
