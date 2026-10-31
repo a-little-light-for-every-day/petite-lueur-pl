@@ -11,10 +11,14 @@ const rows = [
 const reports = [
   { id: "test-report", order_id: "test-order", status: "pending_review" }
 ];
+const fulfillments = [{ id: "test-fulfillment", status: "pending" }];
+const events = [{ id: "audit-1", action: "payment.reviewed" }];
 const db = {
   prepare(sql) {
     return { async all() {
-      return { results: sql.includes("FROM payment_reports pr") ? reports : rows };
+      return { results: sql.includes("FROM payment_reports pr") ? reports :
+        sql.includes("FROM fulfillments f") ? fulfillments :
+        sql.includes("FROM audit_events") ? events : rows };
     }};
   }
 };
@@ -57,4 +61,19 @@ test("owner endpoint fails closed without server-side owner configuration", asyn
   const result = await call("/api/admin/orders", signed(owner),
     { DB: db, SESSION_SECRET: secret });
   assert.equal(result.status, 503);
+});
+
+test("owner-only fulfillment and audit history reject non-owner", async () => {
+  for (const path of ["/api/admin/fulfillments", "/api/admin/audit-events"]) {
+    const no = await call(path, signed("other@example.com"));
+    assert.equal(no.status, 403);
+  }
+});
+test("owner reads fulfillment queue and audit history", async () => {
+  const a = await call("/api/admin/fulfillments", signed(owner));
+  const b = await call("/api/admin/audit-events", signed(owner));
+  assert.equal(a.status, 200);
+  assert.deepEqual(a.data.fulfillments, fulfillments);
+  assert.equal(b.status, 200);
+  assert.deepEqual(b.data.events, events);
 });
