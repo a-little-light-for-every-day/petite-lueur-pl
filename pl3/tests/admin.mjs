@@ -87,5 +87,8 @@ test("staging owner dashboard serves static no-cache HTML without token exposure
   assert.match(response.headers.get("content-type"), /text\/html/);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.match(html, /主購工作台/);
+  assert.match(html, /id="overview"/);
+  assert.match(html, /待人工核帳/);
+  assert.match(html, /僅模擬 QA 下一階段/);
   assert.doesNotMatch(html, /localStorage\\.setItem/);
 });

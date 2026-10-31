@@ -13,9 +13,10 @@ export async function reviewPayment(body, actor, env) {
   if (decision === "reject" && !note) throw err("Rejection reason required");
 
   const row = await env.DB.prepare(
-    "SELECT pr.id,pr.order_id,pr.amount_twd,pr.status,o.total_twd,o.payment_status FROM payment_reports pr JOIN orders o ON o.id=pr.order_id WHERE pr.id=?"
+    "SELECT pr.id,pr.order_id,pr.amount_twd,pr.status,o.total_twd,o.payment_status,o.group_id FROM payment_reports pr JOIN orders o ON o.id=pr.order_id WHERE pr.id=?"
   ).bind(reportId).first();
   if (!row) throw err("Payment report not found", 404);
+  if (!String(row.group_id || "").startsWith("PL3-QA-")) throw err("Staging mutations are QA-only", 403);
   if (row.status !== "pending_review") throw err("Payment report already reviewed", 409);
   if (decision === "approve" && (
     row.payment_status !== "unpaid" || row.amount_twd !== row.total_twd
@@ -66,9 +67,10 @@ export async function advanceFulfillment(body, actor, env) {
     throw err("Invalid or unconfirmed fulfillment update");
   }
   const row = await env.DB.prepare(
-    "SELECT f.id,f.status,oi.order_id FROM fulfillments f JOIN order_items oi ON oi.id=f.order_item_id WHERE f.id=?"
+    "SELECT f.id,f.status,oi.order_id,o.group_id FROM fulfillments f JOIN order_items oi ON oi.id=f.order_item_id JOIN orders o ON o.id=oi.order_id WHERE f.id=?"
   ).bind(id).first();
   if (!row) throw err("Fulfillment not found", 404);
+  if (!String(row.group_id || "").startsWith("PL3-QA-")) throw err("Staging mutations are QA-only", 403);
   const currentIndex = stages.indexOf(row.status);
   if (currentIndex < 0 || stages[currentIndex + 1] !== next) {
     throw err("Invalid fulfillment status transition", 409);

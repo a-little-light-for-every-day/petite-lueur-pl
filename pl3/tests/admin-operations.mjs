@@ -5,8 +5,8 @@ import { reviewPayment, advanceFulfillment } from "../admin-operations.js";
 function harness() {
   const state = {
     payment: { id: "r1", order_id: "o1", amount_twd: 350,
-      total_twd: 350, status: "pending_review", payment_status: "unpaid" },
-    fulfillment: { id: "f1", order_id: "o1", status: "pending" },
+      total_twd: 350, status: "pending_review", payment_status: "unpaid", group_id: "PL3-QA-LOCAL" },
+    fulfillment: { id: "f1", order_id: "o1", status: "pending", group_id: "PL3-QA-LOCAL" },
     events: [], audit: []
   };
   const db = {
@@ -113,4 +113,20 @@ test("fulfillment allows only confirmed next-step transition", async () => {
   await assert.rejects(advanceFulfillment({
     fulfillment_id: "f1", status: "ordered", confirmed: true
   }, "owner@example.com", env), { status: 409 });
+});
+
+test("staging rejects manual mutations for any non-QA group", async () => {
+  const {env,state}=harness();
+  state.payment.group_id="FORMAL-GROUP";
+  state.fulfillment.group_id="FORMAL-GROUP";
+  await assert.rejects(reviewPayment({
+    report_id:"r1", decision:"reject", note:"Reason provided"
+  },"owner@example.com",env),{status:403,message:"Staging mutations are QA-only"});
+  await assert.rejects(advanceFulfillment({
+    fulfillment_id:"f1",status:"ordered",confirmed:true,note:"Test"
+  },"owner@example.com",env),{status:403,message:"Staging mutations are QA-only"});
+  assert.equal(state.audit.length,0);
+  assert.equal(state.events.length,0);
+  assert.equal(state.payment.status,"pending_review");
+  assert.equal(state.fulfillment.status,"pending");
 });
