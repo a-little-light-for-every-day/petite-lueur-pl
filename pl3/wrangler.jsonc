@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pl3-staging-api",
+  "main": "worker-api-candidate.js",
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pl3-staging",
+      "database_id": "cc08ca47-1b59-435c-8ac9-11d0a1c703e9"
+    }
+  ]
+}
