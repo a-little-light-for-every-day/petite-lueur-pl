@@ -53,6 +53,16 @@
       </div>
       <h2>我的測試訂單</h2>
       <div id="orders-list"></div>
+      <div id="qa-panel" class="order" hidden>
+        <h3>PL 3.0 專用測試操作</h3>
+        <p class="hint">僅限 PL 官方管理信箱測試。商品：PL3-QA-SKU-01 × 1，金額 NT$350。此操作會在測試 D1 建立資料，但不會產生真實收款或採購。</p>
+        <div class="actions">
+          <button id="qa-create-button" type="button">建立 NT$350 測試訂單</button>
+          <button id="qa-repeat-button" class="secondary" type="button" disabled>重送同一訂單（防重複驗收）</button>
+          <button id="qa-payment-button" class="secondary" type="button" disabled>建立測試付款回報（不會收款）</button>
+        </div>
+        <div id="qa-result" class="status" role="status" aria-live="polite" hidden></div>
+      </div>
     </section>
 
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
@@ -78,7 +88,7 @@
     }
     function loading(value) {
       busy = value;
-      for (const id of ["request-button", "verify-button", "refresh-button"]) byId(id).disabled = value;
+      for (const id of ["request-button", "verify-button", "refresh-button", "qa-create-button"]) byId(id).disabled = value;
     }
     async function call(path, options = {}) {
       let response;
@@ -136,6 +146,7 @@
         byId("code").value = "";
         byId("signed-in-as").textContent = "已驗證：" + selectedEmail;
         show("orders-step");
+        byId("qa-panel").hidden = selectedEmail !== "petitelueur.pl@gmail.com";
         await loadOrders();
       } catch (error) { status(error.message, "error"); }
       finally { loading(false); }
@@ -181,10 +192,72 @@
     }
     function signOut() {
       token = null; expiry = 0; selectedEmail = "";
+      qaKey = null; qaOrderId = null;
+      byId("qa-panel").hidden = true;
+      byId("qa-repeat-button").disabled = true;
+      byId("qa-payment-button").disabled = true;
+      byId("qa-result").hidden = true;
       byId("code").value = "";
       byId("orders-list").replaceChildren();
       show("email-step");
     }
+    let qaKey = null;
+    let qaOrderId = null;
+    function qaStatus(message, failed = false) {
+      const el = byId("qa-result");
+      el.textContent = message;
+      el.className = "status" + (failed ? " error" : " success");
+      el.hidden = !message;
+    }
+    async function qaCreate(replay = false) {
+      if (busy || selectedEmail !== "petitelueur.pl@gmail.com") return;
+      if (!qaKey) qaKey = crypto.randomUUID();
+      loading(true);
+      try {
+        const result = await call("/api/orders", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token },
+          body: JSON.stringify({
+            idempotency_key: qaKey,
+            customer_name: "PL3 QA 系統測試",
+            group_id: "PL3-QA-20261101",
+            items: [{ product_id: "PL3-QA-SKU-01", quantity: 1 }]
+          })
+        });
+        qaOrderId = result.order_id;
+        if (Number(result.total_twd || 350) !== 350) throw new Error("測試金額不是 NT$350，請停止驗收。");
+        byId("qa-repeat-button").disabled = false;
+        byId("qa-payment-button").disabled = false;
+        qaStatus((result.replayed ? "✅ 防重複驗收通過：仍是同一張訂單。" :
+          "✅ 測試訂單建立成功。") + " 訂單編號：" + qaOrderId);
+        await loadOrders();
+      } catch (error) { qaStatus("測試下單失敗：" + error.message, true); }
+      finally { loading(false); }
+    }
+    async function qaPayment() {
+      if (busy || !qaOrderId || selectedEmail !== "petitelueur.pl@gmail.com") return;
+      loading(true);
+      try {
+        const result = await call("/api/payment-reports", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token },
+          body: JSON.stringify({
+            order_id: qaOrderId,
+            method: "other",
+            amount_twd: 350,
+            reference_last5: "",
+            note: "PL3 QA ONLY / 無真實金流與匯款"
+          })
+        });
+        qaStatus("✅ 測試付款回報已寫入，狀態：" + result.status +
+          "。沒有真實付款，也沒有自動標記已付款。");
+        byId("qa-payment-button").disabled = true;
+      } catch (error) { qaStatus("測試付款回報失敗：" + error.message, true); }
+      finally { loading(false); }
+    }
+    byId("qa-create-button").addEventListener("click", () => void qaCreate());
+    byId("qa-repeat-button").addEventListener("click", () => void qaCreate(true));
+    byId("qa-payment-button").addEventListener("click", () => void qaPayment());
     byId("refresh-button").addEventListener("click", () => { if (!busy) void loadOrders(); });
     byId("back-button").addEventListener("click", () => { if (!busy) { signOut(); status(""); } });
     byId("sign-out-button").addEventListener("click", () => { signOut(); status("已登出。", "success"); });
