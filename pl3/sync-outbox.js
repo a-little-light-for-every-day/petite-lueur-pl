@@ -29,8 +29,8 @@ export async function drainOutbox(env, maxEvents = 3) {
   const now = new Date().toISOString();
   // Exclude ALL QA orders: never copy test traffic into real Notion/Sheets.
   const pending = await env.DB.prepare(
-    "SELECT s.id,s.entity_type,s.entity_id,s.event_type,s.payload_json,s.status,s.attempts FROM sync_outbox s JOIN orders o ON o.id=s.entity_id WHERE s.entity_type='order' AND o.group_id NOT LIKE 'PL3-QA-%' AND ((s.status IN ('pending','retry') AND (s.next_attempt_at IS NULL OR s.next_attempt_at<=?)) OR (s.status='processing' AND s.next_attempt_at<=?)) ORDER BY s.created_at ASC LIMIT ?"
-  ).bind(now, now, Math.min(Math.max(Number(maxEvents) || 1, 1), 3)).all();
+    "SELECT s.id,s.entity_type,s.entity_id,s.event_type,s.payload_json,s.status,s.attempts,o.group_id FROM sync_outbox s JOIN orders o ON o.id=s.entity_id WHERE s.entity_type='order' AND (o.group_id NOT LIKE 'PL3-QA-%' OR ?=1) AND ((s.status IN ('pending','retry') AND (s.next_attempt_at IS NULL OR s.next_attempt_at<=?)) OR (s.status='processing' AND s.next_attempt_at<=?)) ORDER BY s.created_at ASC LIMIT ?"
+  ).bind(env.PL3_SYNC_ALLOW_QA === 'true' ? 1 : 0, now, now, Math.min(Math.max(Number(maxEvents) || 1, 1), 3)).all();
   const summary = { ok: true, examined: 0, delivered: 0, retry: 0 };
   for (const event of pending.results || []) {
     const claimed = await env.DB.prepare(
@@ -45,8 +45,9 @@ export async function drainOutbox(env, maxEvents = 3) {
       // Send an immutable event ID and no credentials, no private bank details.
       const body = JSON.stringify({
         event_id: event.id, entity_type: event.entity_type,
-        entity_id: event.entity_id, event_type: event.event_type, payload
+        entity_id: event.entity_id, group_id: event.group_id, event_type: event.event_type, payload
       });
+      const signedBody = JSON.stringify({ body, signature: await signature(env.PL3_SYNC_WEBHOOK_SECRET, body) });
       const res = await fetch(url.toString(), {
         method: "POST",
         headers: {
@@ -55,7 +56,7 @@ export async function drainOutbox(env, maxEvents = 3) {
           "X-PL3-Signature": "sha256=" +
             await signature(env.PL3_SYNC_WEBHOOK_SECRET, body)
         },
-        body,
+        body: signedBody,
         signal: AbortSignal.timeout(15000)
       });
       const ack = await res.json().catch(() => ({}));
