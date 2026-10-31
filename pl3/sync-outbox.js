@@ -27,9 +27,9 @@ export async function drainOutbox(env, maxEvents = 3) {
     fail("Sync destination must be HTTPS");
   }
   const now = new Date().toISOString();
-  // Exclude ALL QA orders: never copy test traffic into real Notion/Sheets.
+  // Explicit QA-only allowlist: never deliver real order events to this receiver.
   const pending = await env.DB.prepare(
-    "SELECT s.id,s.entity_type,s.entity_id,s.event_type,s.payload_json,s.status,s.attempts,o.group_id FROM sync_outbox s JOIN orders o ON o.id=s.entity_id WHERE s.entity_type='order' AND (o.group_id NOT LIKE 'PL3-QA-%' OR ?=1) AND ((s.status IN ('pending','retry') AND (s.next_attempt_at IS NULL OR s.next_attempt_at<=?)) OR (s.status='processing' AND s.next_attempt_at<=?)) ORDER BY s.created_at ASC LIMIT ?"
+    "SELECT s.id,s.entity_type,s.entity_id,s.event_type,s.payload_json,s.status,s.attempts,o.group_id FROM sync_outbox s JOIN orders o ON o.id=s.entity_id WHERE s.entity_type='order' AND (?=1 AND o.group_id LIKE 'PL3-QA-%') AND ((s.status IN ('pending','retry') AND (s.next_attempt_at IS NULL OR s.next_attempt_at<=?)) OR (s.status='processing' AND s.next_attempt_at<=?)) ORDER BY s.created_at ASC LIMIT ?"
   ).bind(env.PL3_SYNC_ALLOW_QA === 'true' ? 1 : 0, now, now, Math.min(Math.max(Number(maxEvents) || 1, 1), 3)).all();
   const summary = { ok: true, examined: 0, delivered: 0, retry: 0 };
   for (const event of pending.results || []) {
