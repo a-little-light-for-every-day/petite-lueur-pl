@@ -2497,7 +2497,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     if(status==='已下單・部分商品加開收單'){
       // Explicitly authorized second intake for Aikatsu; never reopen other purchased campaigns.
       if(String(p.campaignCode||'').trim().toUpperCase()==='PL-AIKATSU-261031'){
-        return Date.now()<Date.parse('2026-11-01T12:00:00+08:00') &&
+        return Date.now()<Date.parse('2026-11-01T20:00:00+08:00') &&
           p.published!==false && !productStatuses(p).some(x=>['完售','暫停接單','流團'].includes(x));
       }
       return p.additionalOrderOpen===true||p.reopened===true||p.allowAdditionalOrder===true;
