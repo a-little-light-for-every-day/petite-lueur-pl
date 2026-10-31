@@ -2376,7 +2376,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const q=String(($('searchInput')||{}).value||'').trim().toLowerCase();
     return storeSortProducts(products.filter(p=>{
       // R9 Hotfix: hide old product cards even before the 15-minute job patches Notion.
-      if (!p || p.published === false || deadlineExpired(p.preorderDeadline)) return false;
+      if (!p || p.published === false || deadlineExpired(p.preorderDeadline) || !plPublicCampaignOpen(p)) return false;
       if(plYonaKnownProduct(p)){
         const states=productStatuses(p);
         if(p.published!==true || states.includes('暫停接單') || states.includes('完售'))return false;
@@ -2400,7 +2400,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }
   function renderBrowseFilters(){
     if(activeMode==='inquiry'||activeMode==='news')return; // news and inquiry have no shop filters
-    const eligibleProducts=products.filter(p=>activeMode==='news'?plIsApprovedNewsProduct(p):activeMode==='formal'?storeMode(p)==='formal':true);
+    const eligibleProducts=products.filter(p=>plPublicCampaignOpen(p)&&(activeMode==='news'?plIsApprovedNewsProduct(p):activeMode==='formal'?storeMode(p)==='formal':true));
     const campaignValues=['全部',...Array.from(new Set(eligibleProducts.map(campaignLabel).filter(Boolean)))];
     if(activeCampaign!=='全部'&&!campaignValues.includes(activeCampaign))activeCampaign='全部';
     const groups=plCatalogBaseGroups();
@@ -2481,9 +2481,28 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       (note?'<small>'+esc(note)+'</small>':'<small>已包含在商品中，不需另外填寫</small>')+'</div>';
   }
 
+  // PL public catalog guard: historical campaigns remain in records, not in the orderable storefront.
+  function plCampaignForProduct(p){
+    const code=String(p&&p.campaignCode||'').trim().toUpperCase();
+    const name=String(p&&p.campaignName||'').trim();
+    return (campaigns||[]).find(c=>(code&&String(c.code||c.campaignCode||'').trim().toUpperCase()===code)||(name&&String(c.name||c.title||c.campaignName||'').trim()===name))||null;
+  }
+  function plPublicCampaignOpen(p){
+    const c=plCampaignForProduct(p);
+    if(!c)return true; // Unlinked standalone products retain their own existing rules.
+    const status=String(c.status||c.state||'').trim();
+    if(!['收單中','即將結單','已下單・部分商品加開收單'].includes(status))return false;
+    const cutoff=c.deadline||c.preorderDeadline||c.orderCloseAt||c.closeAt||c.cutoff||'';
+    if(cutoff&&deadlineExpired(cutoff))return false;
+    if(status==='已下單・部分商品加開收單'){
+      // No blanket reopening: require an explicit product-level opt-in.
+      return p.additionalOrderOpen===true||p.reopened===true||p.allowAdditionalOrder===true;
+    }
+    return true;
+  }
   function isOrderable(p){
     const statuses=productStatuses(p);
-    return storeMode(p)==='formal' && statuses.some(s=>['預購中','現貨','少量現貨'].includes(s))
+    return plPublicCampaignOpen(p) && storeMode(p)==='formal' && statuses.some(s=>['預購中','現貨','少量現貨'].includes(s))
       && !deadlineExpired(p.preorderDeadline)
       && Number(p.price)>0
   }
@@ -2844,7 +2863,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     cart.forEach(line=>{
       const p=productById(line.productId);
       if(!p){notices.push('已移除一項已下架／不存在的商品');return}
-      if(storeMode(p)!=='formal'){notices.push('「'+p.title+'」目前改為新品情報／委託，已從未送出的購物袋移除');return}
+      if(storeMode(p)!=='formal'||!plPublicCampaignOpen(p)){notices.push('「'+p.title+'」目前改為新品情報／委託，已從未送出的購物袋移除');return}
       const config=plVariantConfig(p);
       try{
         if(config.manual&&!String(line.variantLabel||'').trim())throw new Error('客製規格未填寫');
