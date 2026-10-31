@@ -1,0 +1,16 @@
+# PL 3.0 staging ONLY. Replace the zero UUID with a newly created, isolated staging D1 ID before any remote deployment.
+name = "petite-lueur-pl3-staging"
+main = "src/index.ts"
+compatibility_date = "2026-10-31"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pl3-staging"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
