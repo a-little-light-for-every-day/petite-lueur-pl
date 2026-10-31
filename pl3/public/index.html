@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Petite Lueur PL 3.0｜隔離測試環境</title>
+  <style>
+    :root{color-scheme:light;font-family:system-ui,"Noto Sans TC",sans-serif;color:#514039;background:#faf6f2}
+    body{max-width:820px;margin:0 auto;padding:32px 20px}
+    .banner{border:2px solid #b76e74;border-radius:14px;background:#fff1f1;padding:18px}
+    h1{font-size:1.6rem}.tag{font-weight:700;color:#ad3c4d}
+    .item{padding:16px;margin:12px 0;border:1px solid #dccbc1;border-radius:12px;background:white}
+    .meta{color:#76665d}button{display:none}
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <div class="tag">STAGING／示範資料／禁止下單</div>
+    <h1>Petite Lueur PL 3.0</h1>
+    <p>這是與正式網站完全隔離的測試頁面。所有顯示商品均為合成示範資料，沒有客戶資訊，也不提供訂單或付款功能。</p>
+    <p>正式商店仍使用原網址，請勿將本頁面提供客人下單。</p>
+  </div>
+  <h2>公開商品 API 測試</h2>
+  <p id="status" role="status">正在向 D1 取得測試商品…</p>
+  <main id="items"></main>
+  <script type="module">
+    const status = document.getElementById('status');
+    const items = document.getElementById('items');
+    try {
+      const response = await fetch('/api/catalog', {cache: 'no-store'});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error('無法取得商品');
+      status.textContent = '已載入 ' + data.count + ' 筆可公開測試資料（UTC ' + data.asOf + '）';
+      for (const p of data.products) {
+        const card = document.createElement('section');
+        card.className = 'item';
+        const name = document.createElement('strong');
+        name.textContent = p.name + (p.variant ? '｜' + p.variant : '');
+        const line = document.createElement('p');
+        line.className = 'meta';
+        line.textContent = p.campaignName + ' · NT$' + p.priceTwd + ' · ' + (p.sku || '無 SKU');
+        card.append(name, line);
+        items.append(card);
+      }
+    } catch {
+      status.textContent = 'D1 測試資料尚未初始化，或服務暫時無法使用。';
+    }
+  </script>
+</body>
+</html>
