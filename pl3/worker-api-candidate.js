@@ -1,3 +1,4 @@
+import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
@@ -226,6 +227,14 @@ export default {
       if(url.pathname==="/api/admin/payment-reports"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await ownerPaymentReports(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/payment-reviews"&&request.method==="POST") {
+        const actor=await authorizedOwner(request,env);
+        return response(await reviewPayment(await jsonBody(request),actor,env),200,origin);
+      }
+      if(url.pathname==="/api/admin/fulfillment-advances"&&request.method==="POST") {
+        const actor=await authorizedOwner(request,env);
+        return response(await advanceFulfillment(await jsonBody(request),actor,env),200,origin);
       }
       if(url.pathname==="/api/orders"&&request.method==="GET")return response(await orders(await authorizedEmail(request,env),env),200,origin);
       if(url.pathname==="/api/orders"&&request.method==="POST"){
