@@ -13,6 +13,10 @@ const names = [
   "SESSION_SECRET",
 ];
 
+// Optional until the isolated QA receiver has been deployed and verified.
+// Never silently publish only part of a sync destination configuration.
+const optionalNames = process.env.PL3_SYNC_WEBHOOK_SECRET
+  ? ["PL3_SYNC_WEBHOOK_SECRET"] : [];
 const missing = names.filter((name) => !process.env[name]);
 if (missing.length) {
   console.error(
@@ -26,7 +30,7 @@ const directory = mkdtempSync(join(tmpdir(), "pl3-staging-secrets-"));
 const file = join(directory, "secrets.json");
 
 try {
-  const secrets = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const secrets = Object.fromEntries([...names, ...optionalNames].map((name) => [name, process.env[name]]));
   writeFileSync(file, JSON.stringify(secrets), { mode: 0o600, flag: "wx" });
 
   // Upload only. Never promote the candidate to live traffic automatically.
