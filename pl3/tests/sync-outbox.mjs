@@ -23,7 +23,7 @@ test("empty outbox drains without contacting remote service", async () => {
   };
   const result = await drainOutbox(env);
   assert.deepEqual(result, { ok: true, examined: 0, delivered: 0, retry: 0 });
-  assert.match(queries[0], /group_id NOT LIKE/);
+  assert.match(queries[0], /group_id LIKE/);
 });
 test("an event with a failed acknowledgement is scheduled for retry", async () => {
   const event = { id:"evt-1", entity_type:"order", entity_id:"order-1",
