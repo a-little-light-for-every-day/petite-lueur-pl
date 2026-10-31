@@ -162,6 +162,24 @@ async function orders(email,env) {
   const result=await env.DB.prepare("SELECT id,group_id,status,payment_status,total_twd,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC LIMIT 100").bind(email).all();
   return {ok:true,orders:result.results||[]};
 }
+async function authorizedOwner(request,env) {
+  requireConfig(env,"PL3_ADMIN_EMAIL");
+  const email=await authorizedEmail(request,env);
+  if(email!==emailOf(env.PL3_ADMIN_EMAIL)) fail("Forbidden",403);
+  return email;
+}
+async function ownerOrders(env) {
+  const result=await env.DB.prepare(
+    "SELECT id,customer_email,customer_name,group_id,status,payment_status,total_twd,created_at FROM orders ORDER BY created_at DESC LIMIT 100"
+  ).all();
+  return {ok:true,orders:result.results||[]};
+}
+async function ownerPaymentReports(env) {
+  const result=await env.DB.prepare(
+    "SELECT pr.id,pr.order_id,pr.method,pr.amount_twd,pr.reference_last5,pr.note,pr.status,pr.created_at,o.customer_email,o.customer_name,o.total_twd,o.payment_status FROM payment_reports pr JOIN orders o ON o.id=pr.order_id WHERE pr.status='pending_review' ORDER BY pr.created_at DESC LIMIT 100"
+  ).all();
+  return {ok:true,reports:result.results||[]};
+}
 async function paymentReport(body,email,env) {
   const orderId=String(body.order_id||"");
   const method=String(body.method||"");
@@ -201,6 +219,14 @@ export default {
       }
       if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env),200,origin);
       if(url.pathname==="/api/auth/verify-code"&&request.method==="POST")return response(await otpVerify(await jsonBody(request),env),200,origin);
+      if(url.pathname==="/api/admin/orders"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await ownerOrders(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/payment-reports"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await ownerPaymentReports(env),200,origin);
+      }
       if(url.pathname==="/api/orders"&&request.method==="GET")return response(await orders(await authorizedEmail(request,env),env),200,origin);
       if(url.pathname==="/api/orders"&&request.method==="POST"){
         const email=await authorizedEmail(request,env);
