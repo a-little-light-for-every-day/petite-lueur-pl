@@ -3695,7 +3695,6 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       </div>`;
     }
     const methods=[];
-    if(info.linePayMoneyEnabled)methods.push('LINE Pay Money');
     if(info.taiwanPayEnabled)methods.push('台灣 Pay（合庫 TWQR）');
     if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
     const methodText=methods.length?methods.join('／'):'請私訊確認當次可用方式';
@@ -3740,7 +3739,6 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function updatePaymentMethodHint(){
     const method=$('paymentMethod').value;
     const map={
-      'LINE Pay Money':'請填 LINE Pay Money 交易識別資訊的末五碼。',
       '台灣 Pay':'請填台灣 Pay 交易識別資訊的末五碼。',
       '中國信託無卡存款':'請填無卡存款交易序號末五碼，或至少五字的人工核對資訊。'
     };
@@ -3751,7 +3749,6 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     if(!lookupToken){alert('查詢驗證已過期，請重新驗證 Email');return}
     const info=lookupPaymentInfoByOrder[String(orderNumber||'')]||{};
     const methods=[];
-    if(info.linePayMoneyEnabled)methods.push('LINE Pay Money');
     if(info.taiwanPayEnabled)methods.push('台灣 Pay');
     if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
     $('paymentMethod').innerHTML=methods.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
