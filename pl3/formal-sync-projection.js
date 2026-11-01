@@ -59,7 +59,10 @@ export function buildFormalProjection(order,lines,event) {
     "狀態":notionOrderStatus
   };
   const lifecycle=sheetItems.map(x=>x.cells.F);
-  if(lifecycle.length===1&&lifecycle[0]!=="待處理")notion["狀態"]=lifecycle[0];
+  // Cancellation is an order-level terminal state. Fulfillment must never
+  // overwrite it in the Notion mirror, even if a purchase was made earlier.
+  if(order.status!=="cancelled"&&lifecycle.length===1&&lifecycle[0]!=="待處理")
+    notion["狀態"]=lifecycle[0];
   // Do not export name/email, payment references, owner cost, or private notes.
   return {
     schema_version:1,source:"PL3_D1",event_id:clean(event.id,200),
