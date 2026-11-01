@@ -15,7 +15,10 @@
     "GMAIL_SENDER": "petitelueur.pl@gmail.com",
     "PL3_ADMIN_EMAIL": "petitelueur.pl@gmail.com",
     "PL3_SYNC_ALLOW_QA": "true",
-    "PL3_SYNC_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbzd6MP0MveFRr0FtOsq5I81Om6y8jJuWuCLFlNYX_j9trPwrTAWSO9wkpUFdtozH7Um9w/exec"
+    "PL3_SYNC_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbzd6MP0MveFRr0FtOsq5I81Om6y8jJuWuCLFlNYX_j9trPwrTAWSO9wkpUFdtozH7Um9w/exec",
+    "PL3_FORMAL_ALLOWED_GROUP_ID": "PL3-FORMAL-REHEARSAL-01",
+    "PL3_FORMAL_SHEETS_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbxb01ZEmkSUxRqdHNaWNv3LJUTBoItk6mHQ7tieQ6tWtSt_CPDdelayADy7o1dtB-27/exec",
+    "PL3_FORMAL_NOTION_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbxb01ZEmkSUxRqdHNaWNv3LJUTBoItk6mHQ7tieQ6tWtSt_CPDdelayADy7o1dtB-27/exec"
   },
   "secrets": {
     "required": [
@@ -25,5 +28,11 @@
       "OTP_PEPPER",
       "SESSION_SECRET"
     ]
+  },
+  "preview_urls": false,
+  "observability": {
+    "logs": {
+      "enabled": true
+    }
   }
 }
