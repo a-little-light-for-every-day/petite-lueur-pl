@@ -18,6 +18,10 @@ approve any bank transfer, and does not import historical orders.
 - Optimistic concurrency: Sheets compares a managed-cell checksum; Notion checks
   `last_edited_time`. Unexpected edits, missing pages, duplicate IDs or
   unapproved status/payment mapping require owner review, never overwrite.
+- Receiver replay recovery: when a Sheets write succeeded but its event-ledger
+  append failed, a retry repairs only the missing ledger if all managed cells,
+  revision and item event markers match exactly. Notion retries reuse a page
+  bearing the same event ID; diverged records are quarantined.
 - A standalone formal Apps Script receiver (not the existing PL2 or QA script);
   idempotent event ledger, HMAC signature, script lock, explicit cohort and
   destinations. It **refuses** the known PL2 workbook and Notion source IDs.
