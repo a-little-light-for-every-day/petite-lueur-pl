@@ -99,6 +99,12 @@ test("paid with unknown payment phase or mismatched amounts is blocked",()=>{
   assert.throws(()=>buildFormalProjection({...ORDER,total_twd:351},LINES,EVENT),{code:"TOTAL_MISMATCH"});
   assert.throws(()=>buildFormalProjection(ORDER,[{...LINES[0],fulfillment_status:"mystery"}],EVENT),{code:"FULFILLMENT_UNMAPPED"});
 });
+test("cancelled order remains cancelled in the Notion mirror after fulfillment advanced",()=>{
+  const projection=buildFormalProjection({...ORDER,status:"cancelled"},LINES,EVENT);
+  assert.equal(projection.sheet.order.cells.D,"已取消");
+  assert.equal(projection.notion.properties["狀態"],"已取消");
+  assert.equal(projection.sheet.items[0].cells.F,"已向日本商店下單");
+});
 test("formal delivery is fail-closed until explicit cohort and credentials",async()=>{
   const {env}=harness();delete env.PL3_FORMAL_SYNC_ENABLED;
   assert.equal(formalEnabled(env),false);
