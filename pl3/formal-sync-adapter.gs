@@ -106,11 +106,24 @@ function formalSheets_(v,p) {
   const current=matched[0]||null;
   const currentItems=formalRows_(tabs.items).filter(x=>x.values[0]===v.order_id);
   const actualRevision=current?formalSheetRevision_(current.values,currentItems.map(x=>x.values)):null;
+  const revision=formalSheetRevision_(shape.order,shape.items);
   const expected=v.expected_remote_revision||null;
   if(previous) {
     if(previous.values[2]!==v.order_id||!current||previous.values[4]!==actualRevision||current.values[6]!==v.event_id)
       return {ok:false,conflict:true,error:"Ledger or sheet changed after acknowledgement"};
     return {ok:true,ack_event_id:v.event_id,destination:"sheets",remote_id:v.order_id,remote_revision:actualRevision};
+  }
+  // If Sheets committed both records but appending the event ledger failed,
+  // recover only when every managed cell and event marker matches exactly.
+  // A partially written or manually edited record must still be quarantined.
+  if(current&&current.values[6]===v.event_id) {
+    const sameItems=currentItems.length===shape.items.length&&currentItems.every(row=>
+      row.values[8]===v.event_id&&shape.items.some(item=>item[1]===row.values[1]));
+    if(actualRevision!==revision||current.values[7]!==revision||!sameItems)
+      return {ok:false,conflict:true,error:"Incomplete or edited event write"};
+    tabs.ledger.appendRow([v.event_id,"sheets",v.order_id,v.order_id,revision,new Date().toISOString()]);
+    SpreadsheetApp.flush();
+    return {ok:true,ack_event_id:v.event_id,destination:"sheets",remote_id:v.order_id,remote_revision:revision};
   }
   if(current) {
     if(v.expected_remote_id!==v.order_id||!expected||actualRevision!==expected)
@@ -121,7 +134,6 @@ function formalSheets_(v,p) {
   }else if(v.expected_remote_id||expected||currentItems.length) {
     return {ok:false,conflict:true,error:"Missing spreadsheet order or orphaned items"};
   }
-  const revision=formalSheetRevision_(shape.order,shape.items);
   shape.order[7]=revision;
   if(current)tabs.orders.getRange(current.row,1,1,shape.order.length).setValues([shape.order]);
   else tabs.orders.appendRow(shape.order);
