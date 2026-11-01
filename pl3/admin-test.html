@@ -37,6 +37,11 @@ small{color:#716a72}a{color:#755063}[hidden]{display:none!important}
 <section id="workspace" hidden>
 <div class="flex"><div><h1>今日主購工作台</h1><p class="hint" id="signed-in"></p></div><div class="actionbar"><button id="refresh" class="alt">重新整理</button><button id="logout" class="alt">登出</button></div></div>
 <section id="overview" class="summary-grid" aria-label="今日待辦摘要"></section>
+<section class="card" id="formal-sync-panel" aria-label="PL3 正式同步隔離驗收">
+<h2>🧪 PL3 獨立同步驗收</h2><p class="muted">只處理已核准的 PL3-FORMAL 測試團次；不會操作 PL2 或寄出通知。</p>
+<div class="actionbar"><button id="formal-status" type="button" class="alt">查看同步狀態</button><button id="formal-drain" type="button">手動同步一批</button></div>
+<p id="formal-result" class="hint" role="status" aria-live="polite">尚未讀取狀態。</p><p id="formal-last-run" class="hint" role="status" aria-live="polite"></p>
+</section>
 <nav aria-label="主購後台分區">
 <button type="button" class="active" data-tab="now">現在待辦</button><button type="button" data-tab="soon">即將到期</button><button type="button" data-tab="late">逾期未處理</button><button type="button" data-tab="history">歷史紀錄</button>
 </nav>
@@ -181,6 +186,9 @@ function renderHistory(){
 }
 for(const b of document.querySelectorAll("nav button"))b.addEventListener("click",()=>setTab(b.dataset.tab));
 $("refresh").addEventListener("click",()=>{if(busy)return;setBusy(true);refresh().catch(err=>msg(err.message,"error")).finally(()=>setBusy(false));});
+async function formalStatus(){const s=await request("/api/admin/formal-sync/status");$("formal-result").textContent="啟用："+(s.enabled?"是":"否")+"；待處理："+s.events.pending+"；重試："+s.events.retry+"；已完成："+s.events.delivered+"；衝突："+s.open_conflicts;return s;}
+$("formal-status").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
+$("formal-drain").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const s=await formalStatus();if(!s.enabled||!s.migration_ready)throw Error("正式同步尚未開啟或資料庫未完成遷移");if(!confirm("僅對 PL3-FORMAL 白名單假團次手動同步最多 2 筆事件至獨立 Sheets 與 Notion，確定？"))return;const r=await request("/api/admin/formal-sync/drain","POST",{limit:2});$("formal-last-run").textContent="上次手動觸發：處理 "+r.examined+"、成功 "+r.delivered+"、待重試 "+r.retry+"、衝突 "+r.conflict+"、停止重試 "+r.dead;await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 $("logout").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await request("/api/admin/session/logout","POST");signOut();msg("已安全登出，此裝置的登入工作階段已撤銷。","ok");}catch(err){msg("登出失敗，請重試："+err.message,"error");}finally{setBusy(false);}});
 void restoreSession();
 </script></body></html>
