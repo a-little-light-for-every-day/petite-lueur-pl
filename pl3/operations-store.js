@@ -103,7 +103,7 @@ export async function saveOperationsAttachment(body,actor,env){
 
 export function publicOperationsCatalog(state){
  const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
- const products=(state.products||[]).filter(p=>p.published&&p.image_official&&p.status==='available'&&groups.some(g=>g.id===p.group_id));
+ const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&groups.some(g=>g.id===p.group_id));
  return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url}))};
 }
 export async function checkoutOperations(body,email,env){
