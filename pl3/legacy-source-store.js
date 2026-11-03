@@ -10,7 +10,7 @@ export async function readLegacyArchive(env) {
   if(x.revision_variants>1){data.disposition='review';data.issues=[...new Set([...data.issues,'SOURCE_REVISION_CONFLICT'])];}
   return data;
  });
- return {ok:true,mode:'isolated_source_archive',safe_to_import:false,orders,
+ return {ok:true,mode:'isolated_source_archive',safe_to_import:false,orders,orphan_item_ids:[],
  counts:{orders:orders.length,excluded:orders.filter(x=>x.disposition==='excluded').length,
  review:orders.filter(x=>x.disposition==='review').length,ready_for_review:orders.filter(x=>x.disposition==='ready_for_review').length}};
 }

@@ -22,7 +22,7 @@ test('actual SQLite source archive replays without duplicates, keeps exclusions,
  insert.run('page','legacy','2026-11-02T13:00:00Z','old',JSON.stringify({...saved,disposition:'ready_for_review',purchase_hold:null}));
  const env={DB:{prepare:sql=>({all:async()=>({results:db.prepare(sql).all()})})}};
  const r=await readLegacyArchive(env);
- assert.equal(r.counts.orders,1);assert.equal(r.counts.excluded,1);assert.equal(r.orders[0].purchase_hold.until,'2026-11-04');
+ assert.ok(Array.isArray(r.orphan_item_ids));assert.equal(r.counts.orders,1);assert.equal(r.counts.excluded,1);assert.equal(r.orders[0].purchase_hold.until,'2026-11-04');
  assert.equal(db.prepare('SELECT COUNT(*) n FROM legacy_source_snapshots').get().n,2);
  insert.run('page','legacy','2026-11-03T13:00:00Z','conflicting',JSON.stringify({...saved,disposition:'ready_for_review'}));
  const conflict=await readLegacyArchive(env);
