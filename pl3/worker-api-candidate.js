@@ -1,4 +1,4 @@
-import { installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
+import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation } from "./operations-domain.js";
 import operationsHtml from "./operations-html.js";
@@ -239,10 +239,17 @@ export default {
           "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         }});
       }
-      if(["/admin-operations","/account"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"}});
+      if(["/admin-operations","/account","/shop"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"}});
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+      if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog((await loadOperations(env)).state),200,origin);
+      if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
+        if(url.pathname==="/api/admin/ops/catalog-source"&&request.method==="GET")return response({ok:true,groups:(await env.DB.prepare('SELECT * FROM groups LIMIT 300').all()).results||[],products:(await env.DB.prepare('SELECT * FROM products LIMIT 1000').all()).results||[]},200,origin);
+        if(url.pathname==="/api/admin/ops/catalog-migrate"&&request.method==="POST"){
+          const body=await jsonBody(request);const source=await env.DB.prepare('SELECT * FROM products WHERE group_id=? LIMIT 500').bind(body.source_group_id).all();
+          return response(await executeOperation({key:body.key,version:body.version,command:{type:'catalog_migrate',group_id:body.group_id,confirmed:body.confirmed,products:source.results||[]}},actor,env),200,origin);
+        }
         if(url.pathname==="/api/admin/ops/install"&&request.method==="POST")return response(await installOperations(env),200,origin);
         if(url.pathname==="/api/admin/ops"&&request.method==="GET")return response(await operationsView(env),200,origin);
         if(url.pathname==="/api/admin/ops/import"&&request.method==="POST"){

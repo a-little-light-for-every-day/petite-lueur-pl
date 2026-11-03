@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS pl_ops_commands(id TEXT PRIMARY KEY,request_hash TEXT
 CREATE TABLE IF NOT EXISTS pl_ops_mail(id TEXT PRIMARY KEY,notice_id TEXT NOT NULL UNIQUE,snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN('queued','sending','sent','failed','unknown','void')),approved_by TEXT NOT NULL,approved_at TEXT NOT NULL,gmail_message_id TEXT,gmail_thread_id TEXT,error_code TEXT,claimed_at TEXT,sent_at TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_attachments(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,base64_data TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`;
 export const opsError=(m,status=400)=>Object.assign(new Error(m),{status});
-const entityKinds=['groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
+const entityKinds=['products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
 const entitySchema="CREATE TABLE IF NOT EXISTS pl_ops_entities(kind TEXT NOT NULL,id TEXT NOT NULL,document_json TEXT NOT NULL CHECK(json_valid(document_json)),updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(kind,id));CREATE TABLE IF NOT EXISTS pl_ops_entity_history(command_id TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL,before_json TEXT,after_json TEXT,actor TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(command_id,kind,entity_id));";
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 export async function installOperations(env){for(const statement of (schema+entitySchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
@@ -34,9 +34,9 @@ async function commit(env,current,next,{key,type,requestHash,actor,result,notice
  if(!res[0]?.meta?.changes)throw opsError('資料已被更新，請重新整理後再操作',409);
  return {ok:true,version:current.version+1,result};
 }
-export async function executeOperation(body,actor,env){
+export async function executeOperation(body,actor,env,{requestIdentity}={}){
  const {key,version,command}=body||{};if(!/^[\w:-]{8,160}$/.test(key||'')||!Number.isInteger(version))throw opsError('缺少操作識別碼或資料版本');
- const requestHash=await hash(JSON.stringify({version,command}));const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
+ const requestHash=await hash(JSON.stringify(requestIdentity===undefined?{version,command}:requestIdentity));const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('操作識別碼已被不同內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
  const current=await loadOperations(env);if(current.state.notices.some(n=>n.status==='sending'))throw opsError('通知正在寄送，請稍後重新整理再操作',423);if(current.version!==version)throw opsError('資料版本已變動，請重新整理',409);
  if(command.type==='notice_edit'&&command.attachments){if(!Array.isArray(command.attachments)||command.attachments.length>4)throw opsError('每封最多4份附件');const verified=[];for(const x of command.attachments){const file=await env.DB.prepare('SELECT id,name,mime_type,size_bytes,sha256 FROM pl_ops_attachments WHERE id=?').bind(x.id).first();if(!file)throw opsError('附件不存在');verified.push(file);}if(verified.reduce((n,x)=>n+x.size_bytes,0)>2000000)throw opsError('附件合計上限2MB');command.attachments=verified;}
@@ -99,4 +99,23 @@ export async function saveOperationsAttachment(body,actor,env){
  if(!valid)throw opsError('附件實際格式與副檔名不符');
  const id=crypto.randomUUID(),name=String(body.name).replace(/[\r\n\x00-\x1f]/g,'').slice(0,150),sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',raw))).map(x=>x.toString(16).padStart(2,'0')).join('');
  await env.DB.prepare('INSERT INTO pl_ops_attachments(id,name,mime_type,size_bytes,sha256,base64_data,created_by) VALUES(?,?,?,?,?,?,?)').bind(id,name,body.mime_type,raw.length,sha256,body.base64_data,actor).run();return {ok:true,file:{id,name,mime_type:body.mime_type,size_bytes:raw.length,sha256}};
+}
+
+export function publicOperationsCatalog(state){
+ const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
+ const products=(state.products||[]).filter(p=>p.published&&p.image_official&&p.status==='available'&&groups.some(g=>g.id===p.group_id));
+ return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url}))};
+}
+export async function checkoutOperations(body,email,env){
+ if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
+ if(!Array.isArray(body.items)||!body.items.length||body.items.length>50||new Set(body.items.map(x=>x.product_id)).size!==body.items.length)throw opsError('商品選擇無效');
+ const identity={email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed};
+ if(body.adult_confirmed!==true||body.terms_confirmed!==true)throw opsError('請確認成年及購物須知');
+ const requestHash=await hash(JSON.stringify(identity));const key='checkout:'+body.key;
+ const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
+ if(prior){if(prior.request_hash!==requestHash)throw opsError('識別碼已被其他內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
+ const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
+ const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
+ if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
+ return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer'}},email,env,{requestIdentity:identity});
 }
