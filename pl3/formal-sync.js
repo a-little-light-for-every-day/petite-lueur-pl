@@ -116,6 +116,8 @@ async function deliver(env,event,destination,projection,transport){
       ]);
       return "conflict";
     }
+    if(ack.ok===false&&/^(SIGNATURE_INVALID|CONFIGURATION_INVALID|DESTINATION_ACCESS_DENIED|NOTION_ACCESS_DENIED|NOTION_SCHEMA_INVALID|DESTINATION_BUSY|RECEIVER_UNAVAILABLE)$/.test(ack.error_code||""))
+      throw Error("Receiver: "+ack.error_code);
     if(!response.ok||ack.ok!==true||ack.ack_event_id!==event.id||ack.destination!==destination||
        typeof ack.remote_id!=="string"||!ack.remote_id||typeof ack.remote_revision!=="string"||!ack.remote_revision)
       throw Error("Destination acknowledgement missing (HTTP "+response.status+")");

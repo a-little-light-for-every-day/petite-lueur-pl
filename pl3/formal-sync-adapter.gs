@@ -227,6 +227,30 @@ function doPost(e) {
   }catch(err) {
     // Do not leak token, event payload or PII to callers.
     console.error("PL3 formal receiver failure",String(err&&err.message||"error").slice(0,100));
-    return formalReject_("Receiver temporarily unavailable",false);
+    const reply={ok:false,conflict:false,error:"Receiver temporarily unavailable",error_code:formalErrorCode_(err)};
+    return formalReply_(reply);
   }
+}
+
+function formalErrorCode_(err) {
+  const message=String(err&&err.message||"");
+  if(/Signature invalid|Invalid signed envelope/.test(message))return "SIGNATURE_INVALID";
+  if(/settings|disabled|allowlist/.test(message))return "CONFIGURATION_INVALID";
+  if(/permission|access|權限/i.test(message))return "DESTINATION_ACCESS_DENIED";
+  if(/Notion API HTTP (401|403|404)/.test(message))return "NOTION_ACCESS_DENIED";
+  if(/Notion API HTTP 400/.test(message))return "NOTION_SCHEMA_INVALID";
+  if(/Notion API HTTP 429|busy/.test(message))return "DESTINATION_BUSY";
+  return "RECEIVER_UNAVAILABLE";
+}
+
+// Owner-run diagnostics only: never log credentials, customer rows, or payloads.
+function formalSelfCheck() {
+  const p=formalSettings_();
+  const result={settings:true,spreadsheet:false,notion:false};
+  SpreadsheetApp.openById(p.PL3_FORMAL_SPREADSHEET_ID).getSheets();
+  result.spreadsheet=true;
+  const data=formalNotionCall_(p,"get","/data_sources/"+encodeURIComponent(p.PL3_FORMAL_NOTION_DATA_SOURCE_ID));
+  result.notion=!!data.id;
+  console.log(JSON.stringify(result));
+  return result;
 }

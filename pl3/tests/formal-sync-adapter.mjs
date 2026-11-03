@@ -23,6 +23,13 @@ const settings={
  PL3_FORMAL_NOTION_DATA_SOURCE_ID:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
  PL3_FORMAL_NOTION_TOKEN:"test-not-real"
 };
+test("receiver diagnostics expose fixed codes without secret-bearing messages",()=>{
+ const c=isolated(settings);
+ assert.equal(c.formalErrorCode_(Error("Signature invalid")),"SIGNATURE_INVALID");
+ assert.equal(c.formalErrorCode_(Error("你沒有存取所要求文件的權限。")),"DESTINATION_ACCESS_DENIED");
+ assert.equal(c.formalErrorCode_(Error("Notion API HTTP 404")),"NOTION_ACCESS_DENIED");
+ assert.equal(c.formalErrorCode_(Error("private-token-should-not-leak")),"RECEIVER_UNAVAILABLE");
+});
 test("formal receiver is locked without explicit property and refuses PL2 destinations",()=>{
  assert.throws(()=>isolated({...settings,PL3_FORMAL_WRITES_ENABLED:"false"}).formalSettings_(),/disabled/);
  assert.throws(()=>isolated({...settings,PL3_FORMAL_SPREADSHEET_ID:"1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI"}).formalSettings_(),/PL2/);

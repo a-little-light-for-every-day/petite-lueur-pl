@@ -22,7 +22,7 @@ nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:22
 .progress{font-size:.84rem;line-height:1.6;color:#795568;margin:7px 0}
 .notice{border-left:4px solid #b58a62;padding:9px 11px;background:#fff8ec;border-radius:6px;margin:11px 0;color:#6c5239;font-size:.9rem}
 .muted{color:#716a72;font-size:.85rem;line-height:1.6}
-small{color:#716a72}a{color:#755063}[hidden]{display:none!important}
+.store-link{display:inline-flex;align-items:center;min-height:44px;padding:10px 12px;border:1px solid #dfd1d8;border-radius:10px;text-decoration:none;background:#fff}small{color:#716a72}a{color:#755063}[hidden]{display:none!important}
 @media(max-width:630px){header{padding:14px}main{padding:0 12px 40px}nav{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:15px}}
 </style>
 </head>
@@ -35,7 +35,7 @@ small{color:#716a72}a{color:#755063}[hidden]{display:none!important}
 <form id="verify-form" hidden><label for="otp">六位數驗證碼</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required><div class="actionbar"><button type="submit">驗證並進入後台</button></div></form>
 </section>
 <section id="workspace" hidden>
-<div class="flex"><div><h1>今日主購工作台</h1><p class="hint" id="signed-in"></p></div><div class="actionbar"><button id="refresh" class="alt">重新整理</button><button id="logout" class="alt">登出</button></div></div>
+<div class="flex"><div><h1>今日主購工作台</h1><p class="hint" id="signed-in"></p></div><div class="actionbar"><a href="https://a-little-light-for-every-day.github.io/petite-lueur-pl/" target="_blank" rel="noopener noreferrer" class="store-link">開啟商品頁 ↗</a><button id="refresh" class="alt">重新整理</button><button id="logout" class="alt">登出</button></div></div>
 <section id="overview" class="summary-grid" aria-label="今日待辦摘要"></section>
 <section class="card" id="formal-sync-panel" aria-label="PL3 正式同步隔離驗收">
 <h2>🧪 PL3 獨立同步驗收</h2><p class="muted">只處理已核准的 PL3-FORMAL 測試團次；不會操作 PL2 或寄出通知。</p>
@@ -95,6 +95,8 @@ function deadlineBucket(o,now=Date.now()){
   return t<now?"late":t<=now+7*86400000?"soon":null;
 }
 function setTab(tab){
+  if(!["now","soon","late","history"].includes(tab))tab="now";
+  if(location.hash!=="#"+tab)history.replaceState(null,"","#"+tab);
   for(const n of document.querySelectorAll("nav button"))n.classList.toggle("active",n.dataset.tab===tab);
   for(const key of ["now","soon","late","history"])$("tab-"+key).hidden=key!==tab;
 }
@@ -109,7 +111,7 @@ function renderSummary(){
     button.addEventListener("click",()=>{setTab(item.tab);$(item.target)?.closest(".card")?.scrollIntoView({behavior:"smooth",block:"start"});});el.append(button);
   }
 }
-function render(){renderSummary();renderReports();renderFulfillments();renderOrders();renderDeadlines();renderHistory();}
+function render(){renderSummary();renderReports();renderFulfillments();renderOrders();renderDeadlines();renderHistory();setTab(location.hash.slice(1));}
 function renderReports(){
   const el=$("reports");el.replaceChildren();
   for(const r of records.reports){
@@ -186,9 +188,12 @@ function renderHistory(){
 }
 for(const b of document.querySelectorAll("nav button"))b.addEventListener("click",()=>setTab(b.dataset.tab));
 $("refresh").addEventListener("click",()=>{if(busy)return;setBusy(true);refresh().catch(err=>msg(err.message,"error")).finally(()=>setBusy(false));});
-async function formalStatus(){const s=await request("/api/admin/formal-sync/status");$("formal-result").textContent="啟用："+(s.enabled?"是":"否")+"；待處理："+s.events.pending+"；重試："+s.events.retry+"；已完成："+s.events.delivered+"；衝突："+s.open_conflicts;return s;}
+function syncCounts(d){return "Sheets／Notion送達："+d.delivered+"；等待重試："+d.retry+"；停止重試："+d.dead+"；目的地衝突："+d.conflict;}
+async function formalStatus(){const s=await request("/api/admin/formal-sync/status");$("formal-result").textContent="啟用："+(s.enabled?"是":"否")+"；待處理："+s.events.pending+"；重試："+s.events.retry+"；已完成："+s.events.delivered+"；衝突："+s.open_conflicts+"。"+syncCounts(s.deliveries);return s;}
 $("formal-status").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 $("formal-drain").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const s=await formalStatus();if(!s.enabled||!s.migration_ready)throw Error("正式同步尚未開啟或資料庫未完成遷移");if(!confirm("僅對 PL3-FORMAL 白名單假團次手動同步最多 2 筆事件至獨立 Sheets 與 Notion，確定？"))return;const r=await request("/api/admin/formal-sync/drain","POST",{limit:2});$("formal-last-run").textContent="上次手動觸發：處理 "+r.examined+"、成功 "+r.delivered+"、待重試 "+r.retry+"、衝突 "+r.conflict+"、停止重試 "+r.dead;await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 $("logout").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await request("/api/admin/session/logout","POST");signOut();msg("已安全登出，此裝置的登入工作階段已撤銷。","ok");}catch(err){msg("登出失敗，請重試："+err.message,"error");}finally{setBusy(false);}});
+window.addEventListener("pageshow",e=>{if(e.persisted)void restoreSession();});
+window.addEventListener("hashchange",()=>setTab(location.hash.slice(1)));
 void restoreSession();
 </script></body></html>
