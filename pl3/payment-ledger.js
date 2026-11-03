@@ -12,7 +12,11 @@ const unique = (rows, label) => {
 };
 export function calculatePaymentLedger({ invoices = [], receipts = [], allocations = [] }) {
   unique(invoices, 'invoice'); unique(receipts, 'receipt'); unique(allocations, 'allocation');
+  const phases=new Set(), confirmedEvidence=new Set();
   const bills = new Map(invoices.map(x => {
+    const phaseKey=JSON.stringify([x.order_id,x.phase]);
+    if(phases.has(phaseKey)) throw new Error('DUPLICATE_ORDER_PHASE');
+    phases.add(phaseKey);
     if (!x.order_id || !['first','second'].includes(x.phase) || !['transfer','cod','unknown'].includes(x.channel))
       throw new Error('INVALID_INVOICE');
     if (x.amount_twd !== null) money(x.amount_twd, 'invoice');
@@ -21,6 +25,10 @@ export function calculatePaymentLedger({ invoices = [], receipts = [], allocatio
   const funds = new Map(receipts.map(x => {
     money(x.amount_twd, 'receipt');
     if (!x.evidence || !['bank_confirmed','cod_settled','reported'].includes(x.status)) throw new Error('INVALID_RECEIPT');
+    if(x.status!=='reported'){
+      if(confirmedEvidence.has(x.evidence)) throw new Error('DUPLICATE_RECEIPT_EVIDENCE');
+      confirmedEvidence.add(x.evidence);
+    }
     return [x.id, {...x, allocated_twd:0}];
   }));
   for (const x of allocations) {

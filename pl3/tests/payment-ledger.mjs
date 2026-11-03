@@ -26,7 +26,7 @@ test('receipt allocation cannot be duplicated, exceed funds, or move across cust
  assert.throws(()=>calculatePaymentLedger({invoices:[bill],receipts:[{...receipt,order_id:'b'}],allocations:[allocation]}),/CROSS_ORDER/);
 });
 test('consolidated notice references existing bills without duplicating prior notices',()=>{
- const invoices=[415,145,550,195].map((amount_twd,i)=>({...bill,id:String(i),amount_twd}));
+ const invoices=[415,145,550,195].map((amount_twd,i)=>({...bill,id:String(i),order_id:'order-'+i,amount_twd}));
  assert.equal(paymentNoticeTotal(['0','1','2','3'],invoices),1305);
  assert.throws(()=>paymentNoticeTotal(['0','0'],invoices),/DUPLICATE/);
 });
@@ -52,4 +52,9 @@ test('same amount, email or shipping method never joins orders; cancelled stays 
 test('missing verified amount, missing item relation and purchase hold are quarantined',()=>{
  const r=mapLegacyPayments([{...row,received_twd:'',payment_status:'第一階段已核對'}],[],{evidenceByOrder:{legacy:{purchase_hold:{until:'2026-11-04',reason:'credit limit'}}}}).orders[0];
  assert.ok(r.issues.includes('VERIFIED_AMOUNT_MISSING')); assert.ok(r.issues.includes('ITEM_RELATION_MISSING')); assert.equal(r.purchase_hold.until,'2026-11-04');
+});
+
+test('a phase or the same confirmed receipt evidence cannot create duplicate charges or funds',()=>{
+ assert.throws(()=>calculatePaymentLedger({invoices:[bill,{...bill,id:'another'}]}),/DUPLICATE_ORDER_PHASE/);
+ assert.throws(()=>calculatePaymentLedger({receipts:[receipt,{...receipt,id:'r2'}]}),/DUPLICATE_RECEIPT_EVIDENCE/);
 });
