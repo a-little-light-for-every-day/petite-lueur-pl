@@ -117,5 +117,5 @@ export async function checkoutOperations(body,email,env){
  const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
  if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
- return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer'}},email,env,{requestIdentity:identity});
+ return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
 }

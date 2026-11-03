@@ -7,11 +7,11 @@ Implemented: group editing and closure; quoted order items; first and second inv
 Actual live verification:
 - 52 legacy orders imported and persisted after browser reload, with no mail queued or sent.
 - 90 existing Aikatsu product variants imported privately into their exact operating group.
-- Existing public catalog source returned 94 approved products, with 92 exact group matches and 2 unresolved matches. This preview alone does not establish import or publication.
+- Existing public catalog source returned 94 approved products, with 92 exact group matches and 2 unresolved matches. The 92 matched products were subsequently imported, and both unresolved products were retained in an explicit draft-only group. Live UI verifies 184 product rows total; none were published.
 - Gmail OAuth refresh succeeded, with no customer delivery attempted.
 - Apps Script project list is accessible as the official owner. This does not establish production operations synchronization.
 
-Automated validation: 96 tests passing before release; includes actual SQLite transactions, CAS, replay, payment reconciliation, immutable approval, unknown-mail outcomes, COD split shipments, checkout pricing and identity, closed-group retries, official-image publication guards, exact catalog matching and Ensky hold preservation.
+Automated validation: 97 tests passing before release; includes actual SQLite transactions, CAS, replay, payment reconciliation, immutable approval, unknown-mail outcomes, COD split shipments, checkout pricing and identity, closed-group retries, official-image publication guards, exact catalog matching and Ensky hold preservation.
 
 Remaining cutover requirements:
 - Resolve source catalog differences and verify currently available public offerings. Imported drafts remain private; expired groups remain closed.

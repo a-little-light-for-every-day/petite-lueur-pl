@@ -66,7 +66,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const prior=s.orders.find(x=>x.id===c.id);must(!prior||!s.invoices.some(b=>b.order_id===prior.id&&(b.notified||s.allocations.some(a=>a.invoice_id===b.id))),'已通知／收款訂單不可直接改價，請以調整單處理',409);
   must(s.groups.some(g=>g.id===c.group_id&&g.status==='open'),'團次未開放建單');must(email(c.email),'請填有效Email');must(text(c.name),'請填訂購姓名');must(Array.isArray(c.items)&&c.items.length>0&&c.items.length<=50,'請填商品明細');
   const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:positive(l.shipping_units||1),hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
-  const o={id:prior?.id||text(c.id)||'PL3-'+id,group_id:c.group_id,email:c.email.trim().toLowerCase(),name:text(c.name),status:'active',items,goods_twd:items.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0),first_channel:c.first_channel==='cod'?'cod':'transfer',raw_item_text:'',created_at:prior?.created_at||now,source_url:null,notified_first:false};
+  const o={id:prior?.id||text(c.id)||'PL3-'+id,group_id:c.group_id,email:c.email.trim().toLowerCase(),name:text(c.name),status:'active',items,goods_twd:items.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0),first_channel:c.first_channel==='cod'?'cod':'transfer',raw_item_text:'',created_at:prior?.created_at||now,source_url:null,notified_first:false,acceptance:c.acceptance||null};
   if(prior){noticesChanged(s,[prior.id]);Object.assign(prior,o);for(const b of s.invoices.filter(x=>x.order_id===o.id&&x.phase==='first'))b.amount_twd=o.goods_twd;}else s.orders.push(o);changed.push(o.id);result={order_id:o.id};break;
  }
  case 'order_details':{
@@ -80,6 +80,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const g=s.groups.find(x=>x.id===c.group_id);must(g,'找不到團次');must(g.status!=='cancelled','團次已取消');must(c.payment_due_at||g.payment_due_at,'請確認一補付款期限');const due=c.payment_due_at||g.payment_due_at;must(Number.isFinite(Date.parse(due)),'付款期限格式錯誤');
   g.status='closed';g.closed_at=g.closed_at||now;g.payment_due_at=due;result={drafts:[],blocked:[]};
   for(const o of s.orders.filter(o=>o.group_id===g.id&&open(o))){
+   if(/^【未搶到】/.test(o.raw_item_text||'')){result.blocked.push({order_id:o.id,reason:'來源明確標示未搶到，不建立商品款或付款通知'});continue;}
    let b=s.invoices.find(x=>x.order_id===o.id&&x.phase==='first');
    if(!b){if(!Number.isSafeInteger(o.goods_twd)||o.goods_twd<=0){result.blocked.push({order_id:o.id,reason:'商品款尚未確認'});continue;}b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:o.goods_twd,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:o.notified_first===true,due_at:due,carry_twd:0};s.invoices.push(b);}
    if(b.notified||b.channel==='cod'||balance(s,b)===0)continue;
@@ -119,7 +120,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
   for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(v=>v.id===x.item_id);must(open(o)&&l,'找不到有效品項');positive(x.quantity);must(!l.hold||l.hold.released_at,'品項延後條件尚未解除');must(firstPaid(s,o)||(c.advance_approved===true&&text(c.advance_reason)),'一補未清償；如已核准代墊須明確登錄原因');must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;}
   if(c.actual_twd)s.config.card_available_twd-=c.actual_twd;
-  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd,items:c.items,created_at:now});break;
+  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,items:c.items,created_at:now});break;
  }
  case 'movement_record':{
   const stages=['purchased','overseas','transit','taiwan','shipped','delivered'];must(['overseas','transit','taiwan','delivered'].includes(c.stage),'此階段請使用專用出貨操作');must(text(c.evidence),'請填物流／入庫證據');must(Array.isArray(c.items)&&c.items.length>0,'請指定品項');
@@ -155,6 +156,7 @@ export function operationalTasks(s,now=new Date().toISOString()){
  for(const n of s.notices)if(['draft','failed','unknown','queued'].includes(n.status))add('notice',n.id,n.status==='draft'?'通知待審核':n.status==='unknown'?'寄送結果不明，禁止直接重寄':n.status==='queued'?'通知待寄出':'通知失敗',n.subject,n.status==='unknown'?0:1);
  for(const r of s.reports||[])if(r.status==='pending')add('report',r.id,'客人付款回報待核帳',r.order_id+' · NT$'+r.amount_twd,1);
  for(const b of s.invoices){if(b.status==='void')continue;const due=balance(s,b);if(!b.finalized)add('invoice',b.id,'帳款金額待確認',b.order_id);else if(due>0&&b.channel==='cod')add('invoice',b.id,'貨到付款待平台撥款',b.order_id+' · NT$'+due);else if(due>0)add('invoice',b.id,b.due_at&&b.due_at<now?'付款已逾期':'等待付款',b.order_id+' · NT$'+due,b.due_at&&b.due_at<now?1:3);}
+ for(const p of s.purchases)if(p.actual_twd===null)add('purchase',p.id,'實際刷卡金額待核對',p.shop+' · '+p.official_order,1);
  for(const b of s.invoices)if(b.finalized&&b.amount_twd!==null&&balance(s,b)===null)add('invoice',b.id,'歷史已核對款項待補入帳證據',b.order_id+' · 不列為未付款、不催繳',1);
  for(const o of s.orders.filter(open)){if(!email(o.email))add('order',o.id,'缺少Email，無法通知',o.id,1);if(!o.items.length)add('order',o.id,'商品明細待補齊',o.id,1);for(const l of o.items){if(l.hold&&!l.hold.released_at)add('purchase',l.id,'採購延後，須確認解除條件',o.id+' · '+l.name+' · '+l.hold.until,1);else if(l.purchased<l.quantity&&firstPaid(s,o))add('purchase',l.id,'可採購',o.id+' · '+l.name+' ×'+(l.quantity-l.purchased));if(l.purchased>l.overseas)add('warehouse',l.id,'等待海外倉入庫',o.id+' · '+l.name,3);if(l.taiwan>l.shipped)add('shipment',l.id,'台灣倉待出貨',o.id+' · '+l.name);}}
  for(const r of s.receipts)if(credit(s,r)>0)add('credit',r.id,'溢付款待分配／退款',r.customer_email+' · NT$'+credit(s,r));
