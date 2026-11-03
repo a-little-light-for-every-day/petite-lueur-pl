@@ -1,3 +1,4 @@
+import {readApprovedLegacyCatalog,planLegacyCatalogImport} from './catalog-source.js';
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation } from "./operations-domain.js";
@@ -245,6 +246,13 @@ export default {
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
+        if(url.pathname==="/api/admin/ops/catalog-public-preview"&&request.method==="POST"){
+          const products=await readApprovedLegacyCatalog();const current=await loadOperations(env);const plan=planLegacyCatalogImport(products,current.state.groups);return response({ok:true,total:products.length,matched:plan.matched.length,unmatched:plan.unmatched,groups:[...new Set(plan.matched.map(p=>p.group_id))]},200,origin);
+        }
+        if(url.pathname==="/api/admin/ops/catalog-public-import"&&request.method==="POST"){
+          const body=await jsonBody(request);if(body.confirmed!==true)fail('請確認移入舊站已核准商品草稿');
+          const products=await readApprovedLegacyCatalog();let current=await loadOperations(env);if(current.version!==body.version)fail('資料已變動，請重新整理',409);const plan=planLegacyCatalogImport(products,current.state.groups);let imported=0;for(const gid of [...new Set(plan.matched.map(p=>p.group_id))]){current=await loadOperations(env);const rows=plan.matched.filter(p=>p.group_id===gid);const r=await executeOperation({key:'catalog-public:'+body.key+':'+gid,version:current.version,command:{type:'catalog_migrate',group_id:gid,confirmed:true,products:rows}},actor,env);imported+=r.result.imported;}return response({ok:true,imported,unmatched:plan.unmatched.length},200,origin);
+        }
         if(url.pathname==="/api/admin/ops/catalog-source"&&request.method==="GET")return response({ok:true,groups:(await env.DB.prepare('SELECT * FROM groups LIMIT 300').all()).results||[],products:(await env.DB.prepare('SELECT * FROM products LIMIT 1000').all()).results||[]},200,origin);
         if(url.pathname==="/api/admin/ops/catalog-migrate"&&request.method==="POST"){
           const body=await jsonBody(request);const source=await env.DB.prepare('SELECT * FROM products WHERE group_id=? LIMIT 500').bind(body.source_group_id).all();
