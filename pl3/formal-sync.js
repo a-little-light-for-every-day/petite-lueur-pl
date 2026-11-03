@@ -104,7 +104,9 @@ async function deliver(env,event,destination,projection,transport){
     if(content.length>30000)throw Error("Payload too large");
     const payload=JSON.stringify({body:content,signature:await sign(env.PL3_FORMAL_SYNC_SECRET,content)});
     const response=await transport(destinationUrl(env,destination),{
-      method:"POST",headers:{"Content-Type":"application/json"},body:payload,signal:AbortSignal.timeout(15000)
+      // Apps Script cold starts and Notion writes can exceed 15 seconds.
+      // Stay below the 120-second claim lease so another drain cannot overlap.
+      method:"POST",headers:{"Content-Type":"application/json"},body:payload,signal:AbortSignal.timeout(45000)
     });
     const ack=await response.json().catch(()=>({}));
     if(response.status===409||ack.conflict===true){
