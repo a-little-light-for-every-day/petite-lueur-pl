@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {readLegacyArchive} from '../legacy-source-store.js';
+import {enrichLegacySnapshot} from '../legacy-enrichment.js';
+const url='https://notion.so/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+test('structured recovery preserves secured quantity and unknown historical prices without repricing',()=>{
+ const rows=[{source_id:'source',source_url:url,raw_structured_items:JSON.stringify([{c:'A',q:2,a:1,p:100},{c:'B',q:1,a:0,p:200},{c:'C',q:1}])}];
+ const r=enrichLegacySnapshot(rows,[]);
+ assert.deepEqual(r.items.map(x=>[x.sku,x.quantity,x.unit_price_twd]),[['A',1,100],['C',1,null]]);
+ assert.equal(enrichLegacySnapshot(rows,r.items).items.length,2);
+ assert.equal(r.rows[0].raw_structured_items,rows[0].raw_structured_items);
+});
+test('actual SQLite source archive replays without duplicates, keeps exclusions, and rejects stale version selection',async()=>{
+ const db=new DatabaseSync(':memory:');
+ db.exec(readFileSync(new URL('../migrations/0005_legacy_source_snapshots.sql',import.meta.url),'utf8'));
+ const insert=db.prepare('INSERT OR IGNORE INTO legacy_source_snapshots(source_page_id,source_id,source_revision,content_hash,snapshot_json) VALUES (?,?,?,?,?)');
+ const saved={source_id:'legacy',disposition:'excluded',issues:[],purchase_hold:{until:'2026-11-04'}};
+ insert.run('page','legacy','2026-11-03T13:00:00Z','new',JSON.stringify(saved));
+ insert.run('page','legacy','2026-11-03T13:00:00Z','new',JSON.stringify(saved));
+ insert.run('page','legacy','2026-11-02T13:00:00Z','old',JSON.stringify({...saved,disposition:'ready_for_review',purchase_hold:null}));
+ const env={DB:{prepare:sql=>({all:async()=>({results:db.prepare(sql).all()})})}};
+ const r=await readLegacyArchive(env);
+ assert.equal(r.counts.orders,1);assert.equal(r.counts.excluded,1);assert.equal(r.orders[0].purchase_hold.until,'2026-11-04');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM legacy_source_snapshots').get().n,2);
+ insert.run('page','legacy','2026-11-03T13:00:00Z','conflicting',JSON.stringify({...saved,disposition:'ready_for_review'}));
+ const conflict=await readLegacyArchive(env);
+ assert.equal(conflict.counts.review,1);assert.ok(conflict.orders[0].issues.includes('SOURCE_REVISION_CONFLICT'));
+ assert.equal(conflict.safe_to_import,false);db.close();
+});

@@ -24,9 +24,11 @@ export function mapLegacyPayments(rows, items, { evidenceByOrder = {} } = {}) {
     if(first===null) issues.push('FIRST_AMOUNT_UNKNOWN');
     if(second===null) issues.push('SECOND_AMOUNT_UNKNOWN');
     const lineTotal=lines.reduce((sum,x)=>sum+(amount(x.quantity)||0)*(amount(x.unit_price_twd)||0),0);
-    if(lines.some(x=>!Number.isSafeInteger(x.quantity)||x.quantity<1||amount(x.unit_price_twd)===null)) issues.push('INVALID_LINE');
-    if(first!==null && lineTotal!==first) issues.push('ITEM_AMOUNT_MISMATCH');
-    const excluded=/取消|撤單|撤回|售罄/.test(row.order_status||'');
+    if(lines.some(x=>!Number.isSafeInteger(x.quantity)||x.quantity<1)) issues.push('INVALID_LINE');
+    const pricesUnknown=lines.some(x=>amount(x.unit_price_twd)===null);
+    if(pricesUnknown) issues.push('HISTORICAL_PRICE_UNKNOWN');
+    if(!pricesUnknown && first!==null && lineTotal!==first) issues.push('ITEM_AMOUNT_MISMATCH');
+    const excluded=/取消|撤單|撤回|售罄|官方缺貨|官方砍單/.test(row.order_status||'');
     const verifiedFirst=row.payment_status==='第一階段已核對';
     const verifiedSecond=row.payment_status==='第二次付款已核對';
     // An official receipt confirmation may supersede a stale "report submitted" cell.
@@ -69,7 +71,7 @@ export function mapLegacyPayments(rows, items, { evidenceByOrder = {} } = {}) {
     return {source_system:'PL2',source_id:row.source_id,source_url:row.source_url,source_revision:row.source_revision,
       raw_order_status:row.order_status,raw_payment_status:row.payment_status,
       source_amounts:{goods_twd:first,received_twd:received,second_twd:second},
-      lines,ledger,carry:carry||null,purchase_hold:proof.purchase_hold||null,
+      raw_item_text:row.raw_item_text||'',raw_structured_items:row.raw_structured_items||null,lines,ledger,carry:carry||null,purchase_hold:proof.purchase_hold||null,
       disposition:excluded?'excluded':issues.length?'review':'ready_for_review',issues,
       safe_to_import:false};
   });

@@ -43,6 +43,7 @@ nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:22
 <p id="formal-result" class="hint" role="status" aria-live="polite">尚未讀取狀態。</p><p id="formal-last-run" class="hint" role="status" aria-live="polite"></p>
 </section>
 <details class="card" id="legacy-panel"><summary>🧾 舊客單搬遷與一補／二補／貨到付款對應</summary>
+<div class="actionbar"><button id="legacy-load" type="button">讀取全部已保存客單</button></div>
 <p class="muted">載入去除姓名、Email 與銀行資訊的來源快照，預覽每筆訂單的付款階段、待收與溢付款。只計算核對結果，不寫入正式訂單、不寄信。空白二補保留為未定；貨到付款須有約定證據。</p>
 <label for="legacy-json">去識別來源快照 JSON</label><textarea id="legacy-json" spellcheck="false" placeholder='{"rows":[],"items":[],"evidenceByOrder":{}}'></textarea>
 <div class="actionbar"><button id="legacy-preview" type="button" class="alt">核對搬遷與付款對應</button><button id="legacy-clear" type="button" class="alt">清除本次預覽</button></div>
@@ -198,18 +199,15 @@ function syncCounts(d){return "Sheets／Notion送達："+d.delivered+"；等待�
 async function formalStatus(){const s=await request("/api/admin/formal-sync/status");$("formal-result").textContent="啟用："+(s.enabled?"是":"否")+"；待處理："+s.events.pending+"；重試："+s.events.retry+"；已完成："+s.events.delivered+"；衝突："+s.open_conflicts+"。"+syncCounts(s.deliveries);return s;}
 $("formal-status").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 $("formal-drain").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const s=await formalStatus();if(!s.enabled||!s.migration_ready)throw Error("正式同步尚未開啟或資料庫未完成遷移");if(!confirm("僅對 PL3-FORMAL 白名單假團次手動同步最多 2 筆事件至獨立 Sheets 與 Notion，確定？"))return;const r=await request("/api/admin/formal-sync/drain","POST",{limit:2});$("formal-last-run").textContent="上次手動觸發：處理 "+r.examined+"、成功 "+r.delivered+"、待重試 "+r.retry+"、衝突 "+r.conflict+"、停止重試 "+r.dead;await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
-const legacyIssues={SOURCE_REVISION_MISSING:"缺來源版本",SOURCE_PAGE_MISSING:"缺原單連結",ITEM_RELATION_MISSING:"缺明細關聯",FIRST_AMOUNT_UNKNOWN:"一補金額未定",SECOND_AMOUNT_UNKNOWN:"二補未定",ITEM_AMOUNT_MISMATCH:"商品明細與金額不符",INVALID_LINE:"明細格式需確認",VERIFIED_AMOUNT_MISSING:"已核對但缺入帳金額",SECOND_RECEIPT_ALLOCATION_REQUIRED:"需補二補入帳歸屬",RECEIPT_NOT_VERIFIED:"回報尚未核實入帳",UNALLOCATED_CREDIT_REQUIRES_REVIEW:"溢付款待分配",PURCHASE_HOLD:"採購延後",COD_AND_BANK_CONFIRMATION_CONFLICT:"貨到付款與銀行入帳衝突",CARRY_INVALID:"尾款轉二補資料不全",CARRY_INCLUSION_UNKNOWN:"需確認二補是否含尾款",CARRY_EXCEEDS_SECOND:"二補小於轉入尾款"};
+const legacyIssues={HISTORICAL_PRICE_UNKNOWN:"歷史單價未載明",SOURCE_REVISION_CONFLICT:"同版本來源衝突",SOURCE_REVISION_MISSING:"缺來源版本",SOURCE_PAGE_MISSING:"缺原單連結",ITEM_RELATION_MISSING:"缺明細關聯",FIRST_AMOUNT_UNKNOWN:"一補金額未定",SECOND_AMOUNT_UNKNOWN:"二補未定",ITEM_AMOUNT_MISMATCH:"商品明細與金額不符",INVALID_LINE:"明細格式需確認",VERIFIED_AMOUNT_MISSING:"已核對但缺入帳金額",SECOND_RECEIPT_ALLOCATION_REQUIRED:"需補二補入帳歸屬",RECEIPT_NOT_VERIFIED:"回報尚未核實入帳",UNALLOCATED_CREDIT_REQUIRES_REVIEW:"溢付款待分配",PURCHASE_HOLD:"採購延後",COD_AND_BANK_CONFIRMATION_CONFLICT:"貨到付款與銀行入帳衝突",CARRY_INVALID:"尾款轉二補資料不全",CARRY_INCLUSION_UNKNOWN:"需確認二補是否含尾款",CARRY_EXCEEDS_SECOND:"二補小於轉入尾款"};
 function clearLegacy(){ $("legacy-json").value="";$("legacy-results").replaceChildren();$("legacy-summary").textContent="已清除本次預覽。"; }
 $("legacy-clear").addEventListener("click",clearLegacy);
-$("legacy-preview").addEventListener("click",async()=>{
- if(busy)return;setBusy(true);$("legacy-results").replaceChildren();
- try{
-  const raw=$("legacy-json").value;if(new TextEncoder().encode(raw).length>32768)throw Error("快照超過 32 KB，請拆成較小批次。");
-  let body;try{body=JSON.parse(raw);}catch{throw Error("來源快照不是有效 JSON。");}
-  const {preview:p}=await request("/api/admin/legacy-payments/preview","POST",body);
+function renderLegacy(p){
   $("legacy-summary").textContent="共 "+p.counts.orders+" 筆：待核對 "+p.counts.review+"、基本對應完整待審 "+p.counts.ready_for_review+"、取消／排除 "+p.counts.excluded+"；未關聯明細 "+p.orphan_item_ids.length+"。本次未寫入訂單。";
   for(const o of p.orders){
    const it=addLine($("legacy-results"),o.source_id,[o.raw_order_status,o.raw_payment_status,o.disposition==="excluded"?"排除搬遷":"待審核"]);
+   if(o.raw_item_text)it.append(node("p","原單商品："+o.raw_item_text,"muted"));
+   for(const line of o.lines)it.append(node("p",line.sku+" · "+line.variant+" × "+line.quantity+" · "+(line.unit_price_twd===null?"歷史單價未載明":"NT$"+line.unit_price_twd),"muted"));
    for(const b of o.ledger.invoices)it.append(node("p",(b.phase==="first"?"一補":"二補")+"："+(b.amount_twd===null?"金額未定":"應收 NT$"+b.amount_twd+"／已分配 "+b.allocated_twd+"／待收 "+b.outstanding_twd)+(b.channel==="cod"?" · 貨到付款待平台撥款":""),"muted"));
    const credit=o.ledger.receipts.reduce((n,r)=>n+r.unallocated_twd,0);if(credit)it.append(node("p","未分配溢付款 NT$"+credit+"，尚未抵扣二補。","notice"));
    if(o.carry)it.append(node("p","一補尾款 NT$"+o.carry.amount_twd+" 轉二補；來源二補"+(o.carry.included_in_second?"已含此款":"另加此款"),"notice"));
@@ -217,6 +215,19 @@ $("legacy-preview").addEventListener("click",async()=>{
    if(o.issues.length)it.append(node("p",o.issues.map(x=>legacyIssues[x]||x).join("；"),"muted"));
    it.append(node("p","來源版本："+o.source_revision,"muted"));
   }
+}
+$("legacy-load").addEventListener("click",async()=>{
+ if(busy)return;setBusy(true);
+ try{const p=await request("/api/admin/legacy-payments/archive");$("legacy-results").replaceChildren();renderLegacy(p);}
+ catch(err){$("legacy-summary").textContent="讀取未完成："+err.message;}finally{setBusy(false);}
+});
+$("legacy-preview").addEventListener("click",async()=>{
+ if(busy)return;setBusy(true);$("legacy-results").replaceChildren();
+ try{
+  const raw=$("legacy-json").value;if(new TextEncoder().encode(raw).length>32768)throw Error("快照超過 32 KB，請拆成較小批次。");
+  let body;try{body=JSON.parse(raw);}catch{throw Error("來源快照不是有效 JSON。");}
+  const {preview:p}=await request("/api/admin/legacy-payments/preview","POST",body);
+  renderLegacy(p);
  }catch(err){$("legacy-summary").textContent="核對未完成："+err.message;}finally{setBusy(false);}
 });
 $("logout").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await request("/api/admin/session/logout","POST");signOut();msg("已安全登出，此裝置的登入工作階段已撤銷。","ok");}catch(err){msg("登出失敗，請重試："+err.message,"error");}finally{setBusy(false);}});

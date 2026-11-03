@@ -107,3 +107,10 @@ test('legacy malformed snapshot is rejected without exposing input',async()=>{
  const r=await worker.fetch(request,{PL3_ADMIN_EMAIL:owner,SESSION_SECRET:secret,DB:db});
  assert.equal(r.status,400);assert.match((await r.json()).error,/Invalid legacy/);
 });
+
+test('persisted legacy archive is private to owner',async()=>{
+ for(const auth of [undefined,signed('other@example.com')]){
+  const r=await call('/api/admin/legacy-payments/archive',auth);
+  assert.equal(r.status,auth?403:401);
+ }
+});

@@ -1,3 +1,4 @@
+import { readLegacyArchive } from "./legacy-source-store.js";
 import { mapLegacyPayments } from "./legacy-payment-mapper.js";
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
@@ -274,6 +275,10 @@ export default {
         const result=response({ok:true},200,origin);
         result.headers.set("Set-Cookie",clearSessionCookie());
         return result;
+      }
+      if(url.pathname==="/api/admin/legacy-payments/archive"&&request.method==="GET") {
+        await authorizedOwner(request,env);
+        return response(await readLegacyArchive(env),200,origin);
       }
       if(url.pathname==="/api/admin/legacy-payments/preview"&&request.method==="POST") {
         await authorizedOwner(request,env);
