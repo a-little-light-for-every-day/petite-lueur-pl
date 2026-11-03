@@ -44,7 +44,7 @@ export function calculatePaymentLedger({ invoices = [], receipts = [], allocatio
   }
   return {
     invoices:[...bills.values()].map(x => ({...x, outstanding_twd:x.amount_twd === null ? null : x.amount_twd-x.allocated_twd,
-      status:x.amount_twd === null ? 'amount_unknown' : x.allocated_twd === x.amount_twd ? 'settled' :
+      status:x.amount_twd === null ? 'amount_unknown' : x.amount_twd === 0 ? 'zero_recorded_unconfirmed' : x.allocated_twd === x.amount_twd ? 'settled' :
         x.allocated_twd ? 'partial' : x.channel === 'cod' ? 'awaiting_cod_settlement' : 'unpaid'})),
     receipts:[...funds.values()].map(x => ({...x, unallocated_twd:x.status === 'reported' ? 0 : x.amount_twd-x.allocated_twd,
       usable:x.status !== 'reported'}))

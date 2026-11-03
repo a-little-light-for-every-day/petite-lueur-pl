@@ -12,6 +12,7 @@ export function mapLegacyPayments(rows, items, { evidenceByOrder = {} } = {}) {
     if(page && pages.has(page)) throw new Error('DUPLICATE_SOURCE_PAGE');
     if(page) pages.add(page);
   }
+  const receiptEvidence=new Set();
   const mapped=rows.map(row=>{
     const issues=[], proof=evidenceByOrder[row.source_id]||{};
     if(!row.source_revision) issues.push('SOURCE_REVISION_MISSING');
@@ -57,6 +58,10 @@ export function mapLegacyPayments(rows, items, { evidenceByOrder = {} } = {}) {
     } else if(received!==null && received>0) {
       receipts.push({id:prefix+':reported',order_id:row.source_id,amount_twd:received,status:'reported',evidence:row.source_url||'source-row'});
       issues.push('RECEIPT_NOT_VERIFIED');
+    }
+    for(const receipt of receipts.filter(x=>x.status!=='reported')) {
+      if(receiptEvidence.has(receipt.evidence)) throw new Error('DUPLICATE_RECEIPT_EVIDENCE');
+      receiptEvidence.add(receipt.evidence);
     }
     const ledger=calculatePaymentLedger({invoices,receipts,allocations});
     if(ledger.receipts.some(x=>x.unallocated_twd>0)) issues.push('UNALLOCATED_CREDIT_REQUIRES_REVIEW');

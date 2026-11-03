@@ -58,3 +58,13 @@ test('a phase or the same confirmed receipt evidence cannot create duplicate cha
  assert.throws(()=>calculatePaymentLedger({invoices:[bill,{...bill,id:'another'}]}),/DUPLICATE_ORDER_PHASE/);
  assert.throws(()=>calculatePaymentLedger({receipts:[receipt,{...receipt,id:'r2'}]}),/DUPLICATE_RECEIPT_EVIDENCE/);
 });
+
+test('a source zero does not prove the second installment was collected or finalized',()=>{
+ const r=calculatePaymentLedger({invoices:[{...bill,phase:'second',amount_twd:0}]});
+ assert.equal(r.invoices[0].status,'zero_recorded_unconfirmed');
+});
+test('the same confirmation cannot fund two independent migrated orders',()=>{
+ const second={...row,source_id:'other',source_url:'https://notion.so/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'};
+ const proof={receipt:{status:'bank_confirmed',amount_twd:800,evidence:'same-confirmation'}};
+ assert.throws(()=>mapLegacyPayments([row,second],items,{evidenceByOrder:{legacy:proof,other:proof}}),/DUPLICATE_RECEIPT_EVIDENCE/);
+});
