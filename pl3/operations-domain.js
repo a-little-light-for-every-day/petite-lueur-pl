@@ -6,7 +6,7 @@ const email=v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||''))&&!/[\r\n]/.test(
 const money=v=>{must(Number.isSafeInteger(v)&&v>=0,'金額須為非負整數');return v;};
 const positive=v=>{must(Number.isSafeInteger(v)&&v>0,'數量／金額須為正整數');return v;};
 export const newOperations=()=>({schema:1,products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
-export const balance=(s,b)=>b.status==='void'?0:b.amount_twd===null?null:Math.max(0,b.amount_twd-s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0));
+export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
 const order=(s,id)=>{const o=s.orders.find(x=>x.id===id);must(o,'找不到訂單',404);return o;};
 const invoice=(s,id)=>{const x=s.invoices.find(x=>x.id===id);must(x,'找不到帳款',404);return x;};
@@ -35,7 +35,7 @@ export function makeNotice(s,ids,kind,id,now){
 }
 function allocate(s,r,entries){
  must(Array.isArray(entries)&&entries.length>0,'請指定款項分配');
- for(const a of entries){const b=invoice(s,a.invoice_id),o=order(s,b.order_id);positive(a.amount_twd);must(open(o)&&b.finalized&&b.status!=='void'&&balance(s,b)!==null,'帳款尚未確認或已作廢');must(o.email.toLowerCase()===r.customer_email.toLowerCase(),'禁止跨顧客分配款項');must(b.channel!=='cod'||r.kind==='cod_settled','貨到付款必須確認平台實際撥款');must(a.amount_twd<=balance(s,b)&&a.amount_twd<=credit(s,r),'分配金額超過待收或可用餘額');s.allocations.push({id:r.id+':'+b.id+':'+s.allocations.length,receipt_id:r.id,invoice_id:b.id,amount_twd:a.amount_twd});}
+ for(const a of entries){const b=invoice(s,a.invoice_id),o=order(s,b.order_id);positive(a.amount_twd);must(open(o)&&b.finalized&&b.status!=='void'&&b.amount_twd!==null,'帳款尚未確認或已作廢');must(o.email.toLowerCase()===r.customer_email.toLowerCase(),'禁止跨顧客分配款項');must(b.channel!=='cod'||r.kind==='cod_settled','貨到付款必須確認平台實際撥款');must(a.amount_twd<=b.amount_twd-s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)&&a.amount_twd<=credit(s,r),'分配金額超過待收或可用餘額');s.allocations.push({id:r.id+':'+b.id+':'+s.allocations.length,receipt_id:r.id,invoice_id:b.id,amount_twd:a.amount_twd});}
 }
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
@@ -155,6 +155,7 @@ export function operationalTasks(s,now=new Date().toISOString()){
  for(const n of s.notices)if(['draft','failed','unknown','queued'].includes(n.status))add('notice',n.id,n.status==='draft'?'通知待審核':n.status==='unknown'?'寄送結果不明，禁止直接重寄':n.status==='queued'?'通知待寄出':'通知失敗',n.subject,n.status==='unknown'?0:1);
  for(const r of s.reports||[])if(r.status==='pending')add('report',r.id,'客人付款回報待核帳',r.order_id+' · NT$'+r.amount_twd,1);
  for(const b of s.invoices){if(b.status==='void')continue;const due=balance(s,b);if(!b.finalized)add('invoice',b.id,'帳款金額待確認',b.order_id);else if(due>0&&b.channel==='cod')add('invoice',b.id,'貨到付款待平台撥款',b.order_id+' · NT$'+due);else if(due>0)add('invoice',b.id,b.due_at&&b.due_at<now?'付款已逾期':'等待付款',b.order_id+' · NT$'+due,b.due_at&&b.due_at<now?1:3);}
+ for(const b of s.invoices)if(b.finalized&&b.amount_twd!==null&&balance(s,b)===null)add('invoice',b.id,'歷史已核對款項待補入帳證據',b.order_id+' · 不列為未付款、不催繳',1);
  for(const o of s.orders.filter(open)){if(!email(o.email))add('order',o.id,'缺少Email，無法通知',o.id,1);if(!o.items.length)add('order',o.id,'商品明細待補齊',o.id,1);for(const l of o.items){if(l.hold&&!l.hold.released_at)add('purchase',l.id,'採購延後，須確認解除條件',o.id+' · '+l.name+' · '+l.hold.until,1);else if(l.purchased<l.quantity&&firstPaid(s,o))add('purchase',l.id,'可採購',o.id+' · '+l.name+' ×'+(l.quantity-l.purchased));if(l.purchased>l.overseas)add('warehouse',l.id,'等待海外倉入庫',o.id+' · '+l.name,3);if(l.taiwan>l.shipped)add('shipment',l.id,'台灣倉待出貨',o.id+' · '+l.name);}}
  for(const r of s.receipts)if(credit(s,r)>0)add('credit',r.id,'溢付款待分配／退款',r.customer_email+' · NT$'+credit(s,r));
  return tasks.sort((a,b)=>a.priority-b.priority||a.id.localeCompare(b.id));
