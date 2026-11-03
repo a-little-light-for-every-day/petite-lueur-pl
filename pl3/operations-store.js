@@ -7,7 +7,7 @@ export const opsError=(m,status=400)=>Object.assign(new Error(m),{status});
 const entityKinds=['groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
 const entitySchema="CREATE TABLE IF NOT EXISTS pl_ops_entities(kind TEXT NOT NULL,id TEXT NOT NULL,document_json TEXT NOT NULL CHECK(json_valid(document_json)),updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(kind,id));CREATE TABLE IF NOT EXISTS pl_ops_entity_history(command_id TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL,before_json TEXT,after_json TEXT,actor TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(command_id,kind,entity_id));";
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
-export async function installOperations(env){await env.DB.exec(schema);await env.DB.exec(entitySchema);await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
+export async function installOperations(env){for(const statement of (schema+entitySchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
 export async function loadOperations(env){
  const row=await env.DB.prepare("SELECT version,document_json FROM pl_ops_state WHERE id='main'").first();if(!row)throw opsError('營運資料尚未初始化',503);
  const meta=JSON.parse(row.document_json),state={...newOperations(),...meta};
