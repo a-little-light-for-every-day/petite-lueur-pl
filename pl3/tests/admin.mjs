@@ -114,3 +114,13 @@ test('persisted legacy archive is private to owner',async()=>{
   assert.equal(r.status,auth?403:401);
  }
 });
+
+test('operations install, import, commands and private files require owner auth',async()=>{
+ for(const path of ['/api/admin/ops','/api/admin/ops/install','/api/admin/ops/import','/api/admin/ops/command','/api/admin/ops/attachment']){
+  const res=await worker.fetch(new Request('https://worker.example'+path,{method:path.endsWith('/ops')?'GET':'POST',headers:{Authorization:signed('other@example.com'),'Content-Type':'application/json'},body:path.endsWith('/ops')?undefined:'{}'}),{DB:db,PL3_ADMIN_EMAIL:owner,SESSION_SECRET:secret});assert.equal(res.status,403);
+ }
+});
+test('operations console and customer portal serve a real built application shell',async()=>{
+ for(const path of ['/admin-operations','/account']){const r=await worker.fetch(new Request('https://worker.example'+path),{DB:db});assert.equal(r.status,200);const html=await r.text();assert.match(html,/operations-app\.js/);assert.match(html,/viewport/);assert.equal(r.headers.get('X-Frame-Options'),'DENY');}
+ const r=await worker.fetch(new Request('https://worker.example/operations-app.js'),{DB:db});assert.equal(r.status,200);assert.match(await r.text(),/Refine|refine/);
+});

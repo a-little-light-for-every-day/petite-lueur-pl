@@ -1,0 +1,5 @@
+
+# Built private operations console
+pl3/console/node_modules/
+pl3/operations-bundle.js
+pl3/operations-html.js

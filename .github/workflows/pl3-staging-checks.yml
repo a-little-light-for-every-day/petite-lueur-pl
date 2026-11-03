@@ -19,5 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci --prefix pl3/console --ignore-scripts
+      - run: npm --prefix pl3/console run build
       - run: node --check pl3/worker-api-candidate.js
       - run: node --test pl3/tests/*.mjs

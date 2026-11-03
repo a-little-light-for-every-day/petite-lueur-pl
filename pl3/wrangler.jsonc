@@ -14,6 +14,7 @@
   "vars": {
     "GMAIL_SENDER": "petitelueur.pl@gmail.com",
     "PL3_ADMIN_EMAIL": "petitelueur.pl@gmail.com",
+    "PL3_OPS_MAIL_ENABLED": "true",
     "PL3_SYNC_ALLOW_QA": "true",
     "PL3_SYNC_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbzd6MP0MveFRr0FtOsq5I81Om6y8jJuWuCLFlNYX_j9trPwrTAWSO9wkpUFdtozH7Um9w/exec",
     "PL3_FORMAL_ALLOWED_GROUP_ID": "PL3-FORMAL-REHEARSAL-01",
@@ -29,6 +30,7 @@
       "SESSION_SECRET"
     ]
   },
+  "triggers": {"crons": ["*/5 * * * *"]},
   "preview_urls": false,
   "observability": {
     "logs": {
