@@ -59,7 +59,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'group_save':{
   const g=s.groups.find(x=>x.id===c.id);must(text(c.title),'請輸入團次名稱');if(c.auto_close)must(c.deadline&&Number.isFinite(Date.parse(c.deadline))&&c.payment_due_at&&Date.parse(c.payment_due_at)>Date.parse(c.deadline),'自動結單須設定有效截止與付款期限');
-  const data={id:g?.id||id,title:text(c.title),deadline:c.deadline||null,payment_due_at:c.payment_due_at||null,source_url:text(c.source_url,2000),auto_close:c.auto_close===true,status:['open','closed','draft','cancelled'].includes(c.status)?c.status:g?.status||'open'};
+  const data={id:g?.id||text(c.id,160)||id,title:text(c.title),deadline:c.deadline||null,payment_due_at:c.payment_due_at||null,source_url:text(c.source_url,2000),auto_close:c.auto_close===true,status:['open','closed','draft','cancelled'].includes(c.status)?c.status:g?.status||'open'};
   if(g)Object.assign(g,data);else s.groups.push(data);result={group_id:data.id};break;
  }
  case 'order_save':{

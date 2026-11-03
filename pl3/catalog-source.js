@@ -7,9 +7,10 @@ export async function readApprovedLegacyCatalog(transport=fetch){
  const raw=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(match[1].replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))));
  return approvedPublicCatalog(raw).products;
 }
+export function legacyProductDraft(p,group_id){return {group_id,id:p.code,name:p.title,official_sku:null,variant:p.variantText||'',price_twd:p.price,shipping_units:Number.isSafeInteger(p.shippingShares)&&p.shippingShares>0?p.shippingShares:undefined,quantity_limit:Number.isSafeInteger(p.maxPurchase)&&p.maxPurchase>0?p.maxPurchase:null,image_url:p.image||'',status:p.soldOut?'sold_out':'available',source_url:p.sourceUrl||'',source_snapshot:p};}
 export function planLegacyCatalogImport(products,groups){
- const matched=[],unmatched=[];for(const p of products){const gs=groups.filter(g=>g.title===p.campaignName||g.source_code&&g.source_code===p.campaignCode);if(gs.length!==1){unmatched.push({code:p.code,campaign:p.campaignName||p.campaignCode||'',reason:gs.length?'團次重複':'尚無精確團次對應'});continue;}
+ const matched=[],unmatched=[];for(const p of products){const gs=groups.filter(g=>g.title===p.campaignName||g.source_code&&g.source_code===p.campaignCode);if(gs.length!==1){unmatched.push({code:p.code,campaign:p.campaignName||p.campaignCode||'',name:p.title,product:p,reason:gs.length?'團次重複':'尚無精確團次對應'});continue;}
  if(!Number.isSafeInteger(p.price)||p.price<=0){unmatched.push({code:p.code,reason:'售價待核實'});continue;}
- matched.push({group_id:gs[0].id,id:p.code,name:p.title,official_sku:null,variant:p.variantText||'',price_twd:p.price,shipping_units:Number.isSafeInteger(p.shippingShares)&&p.shippingShares>0?p.shippingShares:undefined,quantity_limit:Number.isSafeInteger(p.maxPurchase)&&p.maxPurchase>0?p.maxPurchase:null,image_url:p.image||'',status:p.soldOut?'sold_out':'available',source_url:p.sourceUrl||'',source_snapshot:p});}
+ matched.push(legacyProductDraft(p,gs[0].id));}
  return {matched,unmatched};
 }
