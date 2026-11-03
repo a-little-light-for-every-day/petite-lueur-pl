@@ -42,7 +42,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  switch(c.type){
  case 'catalog_migrate':{
   const g=s.groups.find(g=>g.id===c.group_id);must(g&&c.confirmed,'請確認商品歸屬團次');must(Array.isArray(c.products)&&c.products.length>0&&c.products.length<=500,'商品匯入範圍無效');s.products=s.products||[];let imported=0;
-  for(const x of c.products){const pid='catalog:'+text(x.id,160);if(s.products.some(p=>p.id===pid))continue;must(x.id&&text(x.name)&&Number.isSafeInteger(x.price_twd)&&x.price_twd>0,'來源商品價格或名稱不完整');s.products.push({id:pid,group_id:g.id,name:text(x.name),sku:text(x.official_sku||x.id),variant:text(x.variant),price_twd:x.price_twd,shipping_units:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0?x.shipping_units:1,shipping_units_confirmed:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0,quantity_limit:x.quantity_limit||null,source_url:text(x.source_url||g.source_url,2000),image_url:text(x.image_url,2000),image_official:false,published:false,status:x.status==='sold_out'?'sold_out':'available',source_snapshot:x.source_snapshot||x,updated_at:now});imported++;}result={imported};break;
+  for(const x of c.products){const pid='catalog:'+text(x.id,160);if(s.products.some(p=>p.id===pid))continue;must(x.id&&text(x.name)&&Number.isSafeInteger(x.price_twd)&&x.price_twd>0,'來源商品價格或名稱不完整');s.products.push({id:pid,group_id:g.id,name:text(x.name),sku:text(x.official_sku||x.id),sku_confirmed:!!x.official_sku,variant:text(x.variant),price_twd:x.price_twd,shipping_units:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0?x.shipping_units:1,shipping_units_confirmed:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0,quantity_limit:x.quantity_limit||null,source_url:text(x.source_url||g.source_url,2000),image_url:text(x.image_url,2000),image_official:false,published:false,status:x.status==='sold_out'?'sold_out':'available',source_snapshot:x.source_snapshot||x,updated_at:now});imported++;}result={imported};break;
  }
  case 'product_save':{
   must(s.groups.some(g=>g.id===c.group_id),'請指定有效團次');must(text(c.name)&&text(c.sku),'商品名稱與官方貨號必填');money(c.price_twd);must(c.price_twd>0,'售價須大於0');positive(c.shipping_units);if(c.quantity_limit!==null&&c.quantity_limit!==undefined)positive(c.quantity_limit);
@@ -51,7 +51,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.published)must(c.confirmed===true&&c.image_official===true&&c.image_url,'上架前須確認官方原圖與商品內容');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
   must(!(s.products||[]).some(p=>p.id!==pid&&p.group_id===c.group_id&&p.sku===text(c.sku)&&p.variant===text(c.variant)),'同團貨號與規格重複');
-  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
+  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:true,variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
   s.products=s.products||[];if(prior)Object.assign(prior,p);else s.products.push(p);result={product_id:pid};break;
  }
  case 'order_group':{
@@ -158,4 +158,14 @@ export function operationalTasks(s,now=new Date().toISOString()){
  for(const o of s.orders.filter(open)){if(!email(o.email))add('order',o.id,'缺少Email，無法通知',o.id,1);if(!o.items.length)add('order',o.id,'商品明細待補齊',o.id,1);for(const l of o.items){if(l.hold&&!l.hold.released_at)add('purchase',l.id,'採購延後，須確認解除條件',o.id+' · '+l.name+' · '+l.hold.until,1);else if(l.purchased<l.quantity&&firstPaid(s,o))add('purchase',l.id,'可採購',o.id+' · '+l.name+' ×'+(l.quantity-l.purchased));if(l.purchased>l.overseas)add('warehouse',l.id,'等待海外倉入庫',o.id+' · '+l.name,3);if(l.taiwan>l.shipped)add('shipment',l.id,'台灣倉待出貨',o.id+' · '+l.name);}}
  for(const r of s.receipts)if(credit(s,r)>0)add('credit',r.id,'溢付款待分配／退款',r.customer_email+' · NT$'+credit(s,r));
  return tasks.sort((a,b)=>a.priority-b.priority||a.id.localeCompare(b.id));
+}
+
+export function operatingStatus(s,o){
+ if(o.status==='cancelled')return '已取消';if(o.status==='excluded')return '取消／缺貨歷史';
+ const lines=o.items||[],sum=k=>lines.reduce((n,l)=>n+(Number(l[k])||0),0),q=sum('quantity');
+ if(q&&sum('delivered')===q)return '已完成';if(sum('shipped')>0)return sum('shipped')===q?'台灣已寄出':'部分已寄出';
+ const bills=s.invoices.filter(b=>b.order_id===o.id&&b.status!=='void'),second=bills.find(b=>b.phase==='second'),first=bills.find(b=>b.phase==='first');
+ if(q&&sum('taiwan')>0){if(!second?.finalized)return '商品抵台／待二補結算';if(balance(s,second)>0)return second.channel==='cod'?'抵台／二補貨到付款':'等待第二次付款';return '抵台／待出貨';}
+ if(sum('transit')>0)return '國際運送中';if(sum('overseas')>0)return '海外倉庫已到貨';if(sum('purchased')>0)return sum('purchased')===q?'預購等待中':'部分已採購';
+ if(lines.some(l=>l.hold&&!l.hold.released_at))return '採購延後／待確認解除';if(first?.finalized&&balance(s,first)===0)return '已收款／待採購';if(first?.channel==='cod')return '商品款貨到付款';if(first?.finalized&&balance(s,first)>0)return '待第一階段付款';return o.source_status||'訂購申請待確認';
 }

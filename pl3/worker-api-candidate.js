@@ -1,7 +1,7 @@
 import {readApprovedLegacyCatalog,planLegacyCatalogImport} from './catalog-source.js';
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
-import { balance,applyOperation } from "./operations-domain.js";
+import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import operationsHtml from "./operations-html.js";
 import operationsBundle from "./operations-bundle.js";
 import { readLegacyArchive } from "./legacy-source-store.js";
@@ -240,14 +240,17 @@ export default {
           "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         }});
       }
-      if(["/admin-operations","/account","/shop"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"}});
+      if(["/admin-operations","/account","/shop"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'"}});
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
       if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog((await loadOperations(env)).state),200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
+        if(url.pathname==="/api/admin/ops/export"&&request.method==="GET"){
+          const current=await loadOperations(env);return response({ok:true,format:'pl-operations-backup-v1',exported_at:new Date().toISOString(),version:current.version,state:current.state},200,origin);
+        }
         if(url.pathname==="/api/admin/ops/catalog-public-preview"&&request.method==="POST"){
-          const products=await readApprovedLegacyCatalog();const current=await loadOperations(env);const plan=planLegacyCatalogImport(products,current.state.groups);return response({ok:true,total:products.length,matched:plan.matched.length,unmatched:plan.unmatched,groups:[...new Set(plan.matched.map(p=>p.group_id))]},200,origin);
+          const products=await readApprovedLegacyCatalog();const current=await loadOperations(env);const plan=planLegacyCatalogImport(products,current.state.groups);return response({ok:true,total:products.length,matched:plan.matched.length,matched_products:plan.matched.map(p=>({code:p.id,name:p.name,variant:p.variant,group_id:p.group_id,price:p.price_twd})),unmatched:plan.unmatched,groups:[...new Set(plan.matched.map(p=>p.group_id))]},200,origin);
         }
         if(url.pathname==="/api/admin/ops/catalog-public-import"&&request.method==="POST"){
           const body=await jsonBody(request);if(body.confirmed!==true)fail('請確認移入舊站已核准商品草稿');
@@ -278,7 +281,7 @@ export default {
       }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
-        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
+        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
       }
       if(url.pathname==="/api/operations/payment-report"&&request.method==="POST"){
         const customer=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);
