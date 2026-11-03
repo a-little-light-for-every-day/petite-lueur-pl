@@ -21,3 +21,9 @@ test("missing, extra, duplicates and amounts are not silently merged",()=>{
  assert.throws(()=>reconcileLegacySnapshots([row,row],[]),/duplicate source identity/);
  assert.throws(()=>reconcileLegacySnapshots([{...row,amount_twd:351}],[]),/amount\/lines mismatch/);
 });
+
+test("stale source revision is blocked even when totals and status happen to match",()=>{
+ const r=reconcileLegacySnapshots([row],[{...row,source_revision:"older"}]);
+ assert.deepEqual(r.findings[0].fields,["source_revision"]);
+ assert.equal(r.safe_to_import,false);
+});

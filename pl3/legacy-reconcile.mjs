@@ -43,7 +43,7 @@ export function reconcileLegacySnapshots(legacy,staged) {
     const next=b.get(id);
     if(!next){findings.push({source_id:id,reason:"missing_staged"});continue;}
     const differences=[];
-    for(const field of ["amount_twd","item_count","quantity_total","payment_phase","status"])
+    for(const field of ["amount_twd","item_count","quantity_total","payment_phase","status","source_revision"])
       if(old[field]!==next[field])differences.push(field);
     if(JSON.stringify(old.lines)!==JSON.stringify(next.lines))differences.push("items");
     if(differences.length)findings.push({source_id:id,reason:"mismatch",fields:differences});

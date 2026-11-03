@@ -1,3 +1,4 @@
+import { mapLegacyPayments } from "./legacy-payment-mapper.js";
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
@@ -273,6 +274,16 @@ export default {
         const result=response({ok:true},200,origin);
         result.headers.set("Set-Cookie",clearSessionCookie());
         return result;
+      }
+      if(url.pathname==="/api/admin/legacy-payments/preview"&&request.method==="POST") {
+        await authorizedOwner(request,env);
+        const body=await jsonBody(request);
+        if(!Array.isArray(body.rows)||!Array.isArray(body.items)||body.rows.length>100||body.items.length>500)
+          fail("Invalid legacy review snapshot");
+        let preview;
+        try { preview=mapLegacyPayments(body.rows,body.items,{evidenceByOrder:body.evidenceByOrder||{}}); }
+        catch { fail("Invalid legacy mapping; verify source identities, amounts and evidence"); }
+        return response({ok:true,preview},200,origin);
       }
       if(url.pathname==="/api/admin/formal-sync/status"&&request.method==="GET") {
         await authorizedOwner(request,env);
