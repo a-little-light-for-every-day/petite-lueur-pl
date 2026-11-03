@@ -9,7 +9,8 @@ function isolated(properties={}){
    PropertiesService:{getScriptProperties:()=>({getProperty:k=>properties[k]||null})},
    Utilities:{
      Charset:{UTF_8:"utf8"},DigestAlgorithm:{SHA_256:"sha256"},
-     computeHmacSha256Signature:(str,key)=>[...createHmac("sha256",key).update(str).digest()].map(x=>x>127?x-256:x),
+     // Model the observed Apps Script default encoding separately from UTF-8.
+     computeHmacSha256Signature:(str,key,charset)=>[...createHmac("sha256",key).update(str,charset||"latin1").digest()].map(x=>x>127?x-256:x),
      computeDigest:(_method,str)=>[...createHash("sha256").update(str).digest()].map(x=>x>127?x-256:x)
    }
  });
@@ -43,6 +44,13 @@ test("unsigned or tampered envelopes never reach target code",()=>{
  assert.equal(c.formalVerify_({body:content,signature},settings.PL3_FORMAL_SYNC_SECRET).event_id,"e1");
  assert.throws(()=>c.formalVerify_({body:content+" ",signature},settings.PL3_FORMAL_SYNC_SECRET),/Signature/);
  assert.throws(()=>c.formalVerify_({body:content,signature:"0".repeat(64)},settings.PL3_FORMAL_SYNC_SECRET),/Signature/);
+});
+test("UTF-8 Chinese payload verifies against WebCrypto-compatible HMAC",()=>{
+ const c=isolated(settings);
+ const content=JSON.stringify({event_id:"e1",destination:"sheets",group_id:group,order_id:"o1",event_type:"order.created",
+   projection:{event_id:"e1",group_id:group,order_id:"o1",event_type:"order.created",summary:"多聞 壓克力立牌 測試 💗"}});
+ const signature=createHmac("sha256",settings.PL3_FORMAL_SYNC_SECRET).update(content,"utf8").digest("hex");
+ assert.equal(c.formalVerify_({body:content,signature},settings.PL3_FORMAL_SYNC_SECRET).order_id,"o1");
 });
 test("formal receiver avoids spreadsheet formula injection and checks line sums",()=>{
  const c=isolated(settings);

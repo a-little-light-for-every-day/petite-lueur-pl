@@ -38,7 +38,7 @@ function formalSettings_() {
 function formalVerify_(raw,secret) {
   if(typeof raw.body!=="string"||typeof raw.signature!=="string"||!/^[0-9a-f]{64}$/.test(raw.signature))
     throw Error("Invalid signed envelope");
-  const expected=formalHex_(Utilities.computeHmacSha256Signature(raw.body,secret));
+  const expected=formalHex_(Utilities.computeHmacSha256Signature(raw.body,secret,Utilities.Charset.UTF_8));
   if(expected.length!==raw.signature.length)throw Error("Signature invalid");
   let diff=0;for(let i=0;i<expected.length;i++)diff|=expected.charCodeAt(i)^raw.signature.charCodeAt(i);
   if(diff!==0)throw Error("Signature invalid");
@@ -246,7 +246,11 @@ function formalErrorCode_(err) {
 // Owner-run diagnostics only: never log credentials, customer rows, or payloads.
 function formalSelfCheck() {
   const p=formalSettings_();
-  const result={settings:true,spreadsheet:false,notion:false};
+  const probe="PL3 sync public probe 測試";
+  const expected="875dd17ff78c9903831072b25880f02d54997ffa534555117a5610ce6ffb3153";
+  const result={settings:true,spreadsheet:false,notion:false,
+    utf8_hmac:formalHex_(Utilities.computeHmacSha256Signature(probe,"pl3-public-test-key",Utilities.Charset.UTF_8))===expected,
+    default_hmac:formalHex_(Utilities.computeHmacSha256Signature(probe,"pl3-public-test-key"))===expected};
   SpreadsheetApp.openById(p.PL3_FORMAL_SPREADSHEET_ID).getSheets();
   result.spreadsheet=true;
   const data=formalNotionCall_(p,"get","/data_sources/"+encodeURIComponent(p.PL3_FORMAL_NOTION_DATA_SOURCE_ID));
