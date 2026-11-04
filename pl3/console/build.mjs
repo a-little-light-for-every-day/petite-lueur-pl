@@ -5,6 +5,6 @@ writeFileSync('../operations-bundle.js','// Generated from console/app.jsx. Reac
 
 writeFileSync('../operations-receiver-source.js','// Generated owner-only receiver source. No credentials included.\nexport default '+JSON.stringify(readFileSync('../formal-sync-adapter.gs','utf8')+'\n'+readFileSync('../operations-receiver.gs','utf8'))+';\n');
 
-const storefront=readFileSync('../../index.html','utf8').replace('<head>','<head><base href="https://a-little-light-for-every-day.github.io/petite-lueur-pl/">').replace('<script id="plStoreMainCode"','<script src="https://pl3-staging-api.petitelueur-pl.workers.dev/storefront-cutover.js"></script>\n<script id="plStoreMainCode"');
+const storefront=readFileSync('../../index.html','utf8').replace(/(src|href)=(["'])(assets\/[^"']+)/g,'$1=$2https://a-little-light-for-every-day.github.io/petite-lueur-pl/$3').replace('function renderEmbeddedStoreData(){','function renderEmbeddedStoreData(){if(window.PL3_OPERATING_STOREFRONT)return false;').replace('<script id="plStoreMainCode"','<script src="https://pl3-staging-api.petitelueur-pl.workers.dev/storefront-cutover.js"></script>\n<script id="plStoreMainCode"');
 writeFileSync('../storefront-preview-html.js','// Generated preview of the current branded storefront.\nexport default '+JSON.stringify(storefront)+';\n');
 writeFileSync('../storefront-cutover-source.js','// Generated public entry-point adapter.\nexport default '+JSON.stringify(readFileSync('../storefront-cutover.js','utf8'))+';\n');

@@ -103,6 +103,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'invoice_confirm':{
   const b=invoice(s,c.invoice_id);must(b.phase==='first'&&!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'此帳款請使用既有通知／款項調整流程',409);must(c.confirmed===true&&text(c.evidence),'請確認報價與來源');positive(c.amount_twd);must(c.amount_twd===order(s,b.order_id).goods_twd,'金額須與原商品款一致');b.amount_twd=c.amount_twd;b.finalized=true;b.evidence=text(c.evidence,2000);changed.push(b.order_id);break;
  }
+ case 'owner_test_notice':{must(!s.notices.some(n=>n.kind==='owner-test'&&['draft','queued','sending','unknown'].includes(n.status)),'已有未完成的主購驗收信，請先檢視該草稿');const n={id,kind:'owner-test',to:'petitelueur.pl@gmail.com',subject:'【Petite Lueur PL】3.0 寄信驗收',body:'您好：\n\n這是 PL 3.0 官方信箱寄送測試，僅供主購驗收。未建立客戶帳款、未要求付款，也未發送任何客戶通知。\n\nPetite Lueur PL',attachments:[],order_ids:[],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);result={notice_id:n.id};break;}
  case 'notice_draft':{const n=makeNotice(s,c.invoice_ids,c.kind==='reminder'?'reminder':'payment',id,now);result={notice_id:n.id};break;}
  case 'notice_edit':{
   const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');must(['draft','failed'].includes(n.status),'通知已核准或寄出，不能修改',409);must(text(c.subject,200)&&text(c.body,10000),'主旨／內文不可空白');must(!/[\r\n]/.test(c.subject),'主旨不可換行');must(!/實刷|實際利潤|內部成本|女士|小姐|先生/.test(c.body),'對客內容包含內部成本或不適當稱謂');

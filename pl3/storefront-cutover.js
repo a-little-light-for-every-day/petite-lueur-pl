@@ -1,5 +1,6 @@
 /* Prepared PL3 entry-point adapter. Loaded only in the isolated preview until formal cutover. */
 (()=>{
+ window.PL3_OPERATING_STOREFRONT=true;
  const base='https://pl3-staging-api.petitelueur-pl.workers.dev',old=window.plGithubRpc;
  const go=(path,fragment)=>{location.assign(base+path+(fragment||''));return Promise.reject(Error('請在安全入口確認內容並驗證Email，尚未送出訂單。'));};
  window.plGithubRpc=async(name,args=[])=>{
@@ -10,5 +11,5 @@
   if(['plStorePreviewWish','plStoreListPublicSplitGroups'].includes(name)&&typeof old==='function')return old(name,args);
   throw Error('此操作已移至新的安全入口，請使用正式商店或Email查單。');
  };
- document.addEventListener('DOMContentLoaded',()=>{const oldOpen=window.plOpenQuickService;window.plOpenQuickService=type=>{if(type==='progress'||type==='anonymous')return oldOpen(type);const kind={proxy_purchase:'proxy',direct_order:'ordering',cvs_payment:'payment',forwarding:'forwarding'}[type];if(kind)location.assign(base+'/services#request='+encodeURIComponent(JSON.stringify({kind})));};const link=document.getElementById('plOwnerMobileShortcut');if(link)link.href=base+'/admin-operations';});
+ document.addEventListener('DOMContentLoaded',()=>{if(typeof retryStoreLoad==='function')retryStoreLoad();const oldOpen=window.plOpenQuickService;window.plOpenQuickService=type=>{if(type==='progress'||type==='anonymous')return oldOpen(type);const kind={proxy_purchase:'proxy',direct_order:'ordering',cvs_payment:'payment',forwarding:'forwarding'}[type];if(kind)location.assign(base+'/services#request='+encodeURIComponent(JSON.stringify({kind})));};const link=document.getElementById('plOwnerMobileShortcut');if(link)link.href=base+'/admin-operations';});
 })();
