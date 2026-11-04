@@ -1,3 +1,4 @@
+import {qaTriggerAuthorized,syncQaLedger} from './qa-e2e-sync.js';
 import productionWorker from './worker-api-candidate.js';
 import {installOperations,loadOperations,executeOperation} from './operations-store.js';
 import {balance} from './operations-domain.js';
@@ -58,6 +59,12 @@ export default {
  async fetch(request,env,ctx){
   const u=new URL(request.url);
   if(u.pathname==='/qa'&&request.method==='GET')return new Response(html,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",'x-frame-options':'DENY'}});
+  if(u.pathname==='/qa/sync'){
+   if(request.method!=='POST')return reply({ok:false,error:'Method not allowed'},405);
+   const raw=await request.text();
+   if(raw.length>2048||!await qaTriggerAuthorized(raw,env))return reply({ok:false,error:'QA signed authorization required'},403);
+   try{return reply(await syncQaLedger(env))}catch{return reply({ok:false,error:'QA sync incomplete; production data untouched'},409)}
+  }
   if(u.pathname==='/qa/run'){
    if(request.method!=='POST')return reply({ok:false,error:'Method not allowed'},405);
    if(!await authenticated(request,env))return reply({ok:false,error:'QA authorization required'},403);
