@@ -12,15 +12,15 @@ function isolated(){
     PL3_SYNC_ALLOW_QA:'true',PL3_SYNC_WEBHOOK_SECRET:'test-secret',
     PL3_SYNC_WEBHOOK_URL:'https://script.google.com/macros/s/syntheticQA/exec'}};
 }
-test('owner rehearsal persists exactly four QA-only phase snapshots and retries without duplication',async()=>{
+test('owner rehearsal persists exactly five QA-only phase snapshots and retries without duplication',async()=>{
   const {db,env}=isolated();
   await qaPaymentStart(env);await qaPaymentStart(env);
   const {rows,group_id}=await qaPaymentStatus(env);
-  assert.equal(group_id,'PL3-QA-PAYMENTS');assert.equal(rows.length,4);
-  assert.deepEqual(rows.map(x=>x.amounts.stage),['first_invoiced','first_partial','second_invoiced','second_settled']);
+  assert.equal(group_id,'PL3-QA-PAYMENTS');assert.equal(rows.length,5);
+  assert.deepEqual(rows.map(x=>x.amounts.stage),['first_invoiced','first_partial','first_carry_applied','second_invoiced','second_settled']);
   assert.deepEqual(rows.map(x=>[x.amounts.invoice_twd,x.amounts.received_twd,x.amounts.outstanding_twd,x.amounts.carry_twd]),
-    [[890,0,890,0],[890,800,90,90],[228,0,228,90],[228,228,0,90]]);
-  assert.equal(db.prepare('SELECT count(*) n FROM pl3_qa_payment_events').get().n,4);
+    [[890,0,890,0],[890,800,90,90],[800,800,0,90],[228,0,228,90],[228,228,0,90]]);
+  assert.equal(db.prepare('SELECT count(*) n FROM pl3_qa_payment_events').get().n,5);
   assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE name='pl_ops_state'").get().n,0);
   db.close();
 });
