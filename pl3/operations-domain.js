@@ -161,7 +161,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(r.received_at===c.expected_received_at,'收款日期已變動，請重新整理再核對',409);
   const value=text(c.received_at,10);
   must(/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value,'請填有效實際入帳日期 YYYY-MM-DD');
-  must(value!==String(r.received_at).slice(0,10),'日期未變更');
+  must(value!==r.received_at,'日期未變更');
   r.date_corrections=r.date_corrections||[];
   r.date_corrections.push({id,at:now,previous_received_at:r.received_at,received_at:value,evidence:text(c.evidence,2000)});
   r.received_at=value;
