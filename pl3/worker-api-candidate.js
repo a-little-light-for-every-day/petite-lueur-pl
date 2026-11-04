@@ -143,7 +143,10 @@ async function otpVerify(body,env) {
   if(used.meta?.changes!==1) fail("Code already used",401);
   return {ok:true,token:await tokenFor(env,email),expires_in:3600};
 }
-async function checkout(body,email,env) {
+const FORMAL_QA_GROUP="PL3-FORMAL-REHEARSAL-01";
+const FORMAL_QA_PRODUCT="PL3-TEST-PRODUCT-20261101-01";
+const FORMAL_QA_EMAIL="pl3-qa@example.invalid";
+async function checkout(body,email,env,{privateQa=false}={}) {
   const key=String(body.idempotency_key||"");
   if(!/^[a-zA-Z0-9_-]{16,100}$/.test(key)) fail("Invalid idempotency key");
   const name=String(body.customer_name||"").trim().slice(0,120);
@@ -158,8 +161,12 @@ async function checkout(body,email,env) {
   const previous=await env.DB.prepare("SELECT order_id,request_hash FROM api_idempotency WHERE key=?").bind(key).first();
   if(previous) {if(previous.request_hash!==requestHash) fail("Idempotency key reused",409);return {ok:true,order_id:previous.order_id,replayed:true};}
   const group=await env.DB.prepare("SELECT id,status,published,order_deadline FROM groups WHERE id=?").bind(groupId).first();
-  if(!group||group.published!==1||group.status!=="open") fail("Group unavailable",409);
-  if(group.order_deadline&&Date.parse(group.order_deadline)<=Date.now()) fail("Group closed",409);
+  if(privateQa){
+    if(groupId!==FORMAL_QA_GROUP||env.PL3_FORMAL_ALLOWED_GROUP_ID!==FORMAL_QA_GROUP||!group||group.status!=="draft"||Number(group.published||0)!==0||canonical.length!==1||canonical[0].id!==FORMAL_QA_PRODUCT||canonical[0].quantity!==1)fail("QA cohort unavailable",409);
+  }else{
+    if(!group||group.published!==1||group.status!=="open") fail("Group unavailable",409);
+    if(group.order_deadline&&Date.parse(group.order_deadline)<=Date.now()) fail("Group closed",409);
+  }
   const selections=[];let total=0;
   for(const item of canonical) {
     const p=await env.DB.prepare("SELECT id,group_id,name,variant,price_twd,quantity_limit,status FROM products WHERE id=? AND group_id=?").bind(item.id,groupId).first();
@@ -197,6 +204,21 @@ async function authorizedOwner(request,env) {
   if(email!==emailOf(env.PL3_ADMIN_EMAIL)) fail("Forbidden",403);
   if(!bearer&&request.method!=="GET") requireSameOriginAction(request);
   return email;
+}
+async function privateQaCheckout(body,env){
+  if(env.PL3_FORMAL_SYNC_ENABLED!=="true"&&env.PL3_FORMAL_SYNC_ENABLED!=="1")fail("QA sync is not enabled",409);
+  const key=String(body.idempotency_key||"");
+  return checkout({idempotency_key:key,customer_name:"PL3 假資料驗收｜禁止核帳",group_id:FORMAL_QA_GROUP,items:[{product_id:FORMAL_QA_PRODUCT,quantity:1}]},FORMAL_QA_EMAIL,env,{privateQa:true});
+}
+async function privateQaPaymentReport(body,env){
+  if(env.PL3_FORMAL_ALLOWED_GROUP_ID!==FORMAL_QA_GROUP)fail("QA cohort unavailable",409);
+  const id=String(body.order_id||"");
+  if(!/^[a-f0-9-]{36}$/.test(id))fail("Invalid QA order",400);
+  const order=await env.DB.prepare("SELECT id,total_twd FROM orders WHERE id=? AND group_id=? AND customer_email=? AND customer_name=? AND payment_status='unpaid'").bind(id,FORMAL_QA_GROUP,FORMAL_QA_EMAIL,"PL3 假資料驗收｜禁止核帳").first();
+  if(!order)fail("QA order not found or already settled",404);
+  const already=await env.DB.prepare("SELECT id,status FROM payment_reports WHERE order_id=? ORDER BY created_at DESC LIMIT 1").bind(id).first();
+  if(already)return {ok:true,report_id:already.id,status:already.status,replayed:true};
+  return paymentReport({order_id:id,method:"other",amount_twd:order.total_twd,reference_last5:"",note:"PL3 QA ONLY｜虛構付款回報；禁止核帳、通知、入帳"},FORMAL_QA_EMAIL,env);
 }
 async function ownerOrders(env) {
   const result=await env.DB.prepare(
@@ -393,6 +415,14 @@ export default {
       if(url.pathname==="/api/admin/formal-sync/status"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await inspectFormalSync(env),200,origin);
+      }
+      if(url.pathname==="/api/admin/qa/checkout"&&request.method==="POST") {
+        await authorizedOwner(request,env);
+        return response(await privateQaCheckout(await jsonBody(request),env),201,origin);
+      }
+      if(url.pathname==="/api/admin/qa/payment-report"&&request.method==="POST") {
+        await authorizedOwner(request,env);
+        return response(await privateQaPaymentReport(await jsonBody(request),env),201,origin);
       }
       if(url.pathname==="/api/admin/formal-sync/preview"&&request.method==="GET") {
         await authorizedOwner(request,env);
