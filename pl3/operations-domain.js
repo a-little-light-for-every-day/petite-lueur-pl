@@ -13,6 +13,14 @@ export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r
 const order=(s,id)=>{const o=s.orders.find(x=>x.id===id);must(o,'找不到訂單',404);return o;};
 const invoice=(s,id)=>{const x=s.invoices.find(x=>x.id===id);must(x,'找不到帳款',404);return x;};
 const open=o=>!['cancelled','excluded','completed'].includes(o.status);
+function enforceClaimCapacity(s,orderId,groupId,items){
+ for(const p of (s.products||[]).filter(p=>p.group_id===groupId&&Number.isSafeInteger(p.claim_capacity))){
+  const matches=l=>l.sku===p.sku&&(l.variant||'')===(p.variant||'');
+  const already=(s.orders||[]).filter(o=>o.id!==orderId&&o.group_id===groupId&&!['cancelled','excluded'].includes(o.status)).flatMap(o=>o.items||[]).filter(matches).reduce((n,l)=>n+l.quantity,0);
+  const requested=items.filter(matches).reduce((n,l)=>n+l.quantity,0);
+  must(already+requested+(p.manual_claims||0)<=p.claim_capacity,'拆團名額已不足，請先核對現有認領與人工預留',409);
+ }
+}
 const firstPaid=(s,o)=>{const b=s.invoices.find(x=>x.order_id===o.id&&x.phase==='first');return b&&b.finalized&&balance(s,b)===0;};
 const noticesChanged=(s,ids)=>{for(const n of s.notices)if(!['sent','sending','unknown'].includes(n.status)&&n.order_ids.some(id=>ids.includes(id)))n.status='void';};
 export function noticeDependency(s,n){return JSON.stringify({orders:n.order_ids.map(id=>{const o=order(s,id);return [id,o.email,o.status,o.name];}),invoices:n.invoice_ids.map(id=>{const b=invoice(s,id);return [id,b.amount_twd,b.finalized,b.channel,b.due_at,b.status,balance(s,b)];})});}
@@ -32,7 +40,7 @@ export function makeNotice(s,ids,kind,id,now){
  const deadlines=[...new Set(bills.map(x=>x.due_at).filter(Boolean))];
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
- const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n付款方式提供銀行匯款、台灣 Pay及中國信託無卡存款，請回覆索取當次收款資料。完成後請提供轉帳日期、金額及末五碼，以利核對；實際以銀行入帳為準。\n\n訂單查詢：https://pl3-staging-api.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
+ const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n付款方式提供銀行匯款、台灣 Pay及中國信託無卡存款，請回覆索取當次收款資料。完成後請提供轉帳日期、金額及末五碼，以利核對；實際以銀行入帳為準。\n\n訂單查詢：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
  n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 function allocate(s,r,entries){
@@ -93,12 +101,18 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'product_save':{
   must(s.groups.some(g=>g.id===c.group_id),'請指定有效團次');must(text(c.name)&&text(c.sku),'商品名稱與官方貨號必填');money(c.price_twd);must(c.price_twd>0,'售價須大於0');positive(c.shipping_units);if(c.quantity_limit!==null&&c.quantity_limit!==undefined)positive(c.quantity_limit);
+  const cap=c.claim_capacity===null||c.claim_capacity===undefined||c.claim_capacity===''?null:Number(c.claim_capacity);
+  const manual=c.manual_claims===null||c.manual_claims===undefined||c.manual_claims===''?0:Number(c.manual_claims);
+  must(cap===null||Number.isSafeInteger(cap)&&cap>0,'拆團總名額須為正整數或留白');
+  must(Number.isSafeInteger(manual)&&manual>=0&&(cap!==null||manual===0),'人工預留須為非負整數，且需先設定總名額');
+  const activeClaimed=(s.orders||[]).filter(o=>o.group_id===c.group_id&&!['cancelled','excluded'].includes(o.status)).flatMap(o=>o.items||[]).filter(l=>l.sku===text(c.sku)&&(l.variant||'')===text(c.variant)).reduce((sum,l)=>sum+l.quantity,0);
+  must(cap===null||cap>=activeClaimed+manual,'拆團總名額小於有效客訂加人工預留，請先核對');
   const validURL=v=>{try{return new URL(v).protocol==='https:'}catch{return false}};
   must(validURL(c.source_url),'請填官方HTTPS來源');must(!/animate/i.test(c.source_url),'Animate不列為商業採購通路');if(c.image_url)must(validURL(c.image_url),'圖片必須是HTTPS網址');
   if(c.published)must(c.confirmed===true&&(!c.image_url||c.image_official===true),'上架前須確認商品內容；有圖時須為官方原圖');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
   must(!(s.products||[]).some(p=>p.id!==pid&&p.group_id===c.group_id&&p.sku===text(c.sku)&&p.variant===text(c.variant)),'同團貨號與規格重複');
-  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
+  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,claim_capacity:cap,manual_claims:manual,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
   s.products=s.products||[];if(prior)Object.assign(prior,p);else s.products.push(p);result={product_id:pid};break;
  }
  case 'order_group':{
@@ -114,6 +128,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const prior=s.orders.find(x=>x.id===c.id);must(!prior||!s.invoices.some(b=>b.order_id===prior.id&&(b.notified||s.allocations.some(a=>a.invoice_id===b.id))),'已通知／收款訂單不可直接改價，請以調整單處理',409);
   must(s.groups.some(g=>g.id===c.group_id&&g.status==='open'),'團次未開放建單');must(email(c.email),'請填有效Email');must(text(c.name),'請填訂購姓名');must(Array.isArray(c.items)&&c.items.length>0&&c.items.length<=50,'請填商品明細');
   const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:positive(l.shipping_units||1),fulfillment_kind:['service','fee','forwarding'].includes(l.fulfillment_kind)?l.fulfillment_kind:'physical',hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
+  enforceClaimCapacity(s,prior?.id||text(c.id)||'PL3-'+id,c.group_id,items);
   const o={id:prior?.id||text(c.id)||'PL3-'+id,group_id:c.group_id,email:c.email.trim().toLowerCase(),name:text(c.name),status:'active',items,goods_twd:items.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0),first_channel:c.first_channel==='cod'?'cod':'transfer',raw_item_text:'',created_at:prior?.created_at||now,source_url:null,notified_first:false,acceptance:c.acceptance||null};
   if(prior){noticesChanged(s,[prior.id]);Object.assign(prior,o);for(const b of s.invoices.filter(x=>x.order_id===o.id&&x.phase==='first'))b.amount_twd=o.goods_twd;}else s.orders.push(o);changed.push(o.id);result={order_id:o.id};break;
  }
@@ -122,6 +137,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.email.trim().toLowerCase()!==o.email?.toLowerCase())must(!s.allocations.some(a=>s.invoices.some(b=>b.id===a.invoice_id&&b.order_id===o.id))&&!s.notices.some(n=>n.order_ids.includes(o.id)&&['sent','sending','unknown'].includes(n.status)),'此單已有款項或寄送紀錄，Email需另行核對身分，不可直接更換',409);
   must(Array.isArray(c.items)&&c.items.length>0&&c.items.length<=50,'請補商品明細');
   const lines=c.items.map((x,i)=>{const old=o.items.find(l=>l.id===x.id);const q=positive(x.quantity),price=money(x.unit_price_twd);must(text(x.name),'商品名稱不可空白');must(!old||q>=old.purchased,'需求數量不得小於已實購');return {...(old||{id:id+':'+i,purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0}),name:text(x.name),sku:text(x.sku),variant:text(x.variant),quantity:q,unit_price_twd:price,shipping_units:positive(x.shipping_units||1)};});
+  enforceClaimCapacity(s,o.id,o.group_id,lines);
   must(o.items.filter(l=>l.purchased>0).every(l=>lines.some(x=>x.id===l.id)),'不可移除已採購品項');must(lines.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0)===o.goods_twd,'明細總額必須等於原商品款，不能直接改動舊帳');o.items=lines;o.name=text(c.name);o.email=c.email.trim().toLowerCase();changed.push(o.id);break;
  }
  case 'close_group':{
