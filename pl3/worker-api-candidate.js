@@ -266,6 +266,7 @@ export default {
           return response(await exportOperationsBackup(env),200,origin);
         }
         if(url.pathname==="/api/admin/ops/sync-retry-blocked"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='blocked'").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
+        if(url.pathname==="/api/admin/ops/sync-recheck-revisions"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='conflict' AND destination='notion' AND error_code='OPS_NOTION_REVISION_CHANGED' AND delivered_hash IS NULL").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
         if(url.pathname==="/api/admin/ops/sync-status"&&request.method==="GET")return response(await operationsMirrorStatus(env),200,origin);
         if(url.pathname==="/api/admin/ops/sync-drain"&&request.method==="POST")return response(await drainOperationsMirror(env),200,origin);
         if(url.pathname==="/api/admin/ops/backup-verify"&&request.method==="POST")return response(await verifyOperationsBackup(env,actor),200,origin);
