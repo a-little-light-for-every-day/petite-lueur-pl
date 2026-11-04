@@ -87,7 +87,7 @@ function pl3Validate_(event) {
     kind==='fulfillment.advanced' ? String(p.to||'').slice(0,40) : 'created';
   if(kind==='payment.phase.qa') {
     const stage=String(p.stage||'');
-    if(!['first_invoiced','first_partial','second_invoiced','second_settled'].includes(stage))
+    if(!['first_invoiced','first_partial','first_carry_applied','second_invoiced','second_settled'].includes(stage))
       throw new Error('Invalid QA payment stage');
     const fields=['invoice_twd','received_twd','outstanding_twd','carry_twd'];
     if(fields.some(f=>!Number.isSafeInteger(p[f])||p[f]<0||p[f]>22000))
