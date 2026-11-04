@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pl3-qa-e2e",
+  "main": "worker-api-candidate.js",
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [{"binding":"DB","database_name":"pl3-qa-e2e","database_id":"f05d466b-7bfd-4b42-a346-49cb374398fd"}],
+  "vars": {"PL3_ADMIN_EMAIL":"petitelueur.pl@gmail.com","PL3_OPS_MAIL_ENABLED":"false","PL3_OPS_SYNC_ENABLED":"false","PL3_FORMAL_SYNC_ENABLED":"false","PL3_PRODUCTION_CUTOVER":"false","PL3_SYNC_ALLOW_QA":"false","PL3_QA_ISOLATED":"true"},
+  "triggers": {"crons":[]},
+  "preview_urls": false,
+  "observability": {"logs":{"enabled":true}}
+}
