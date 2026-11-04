@@ -18,6 +18,7 @@ import { drainOutbox } from "./sync-outbox.js";
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
 import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
+import { customerSessionCookie, readCustomerSessionCookie, clearCustomerSessionCookie } from "./customer-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
@@ -50,9 +51,13 @@ async function tokenFor(env,email) {
 }
 async function authorizedEmail(request,env) {
   requireConfig(env,"SESSION_SECRET");
-  const match=/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(request.headers.get("Authorization")||"");
-  if(!match) fail("Authentication required",401);
-  const [payload,signature]=match[1].split(".");
+  const bearer=/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(request.headers.get("Authorization")||"");
+  // Cookie-backed writes need same-origin proof. Bearer-based existing clients
+  // remain supported and never silently fall back from an invalid bearer.
+  const token=bearer?.[1]||(!request.headers.has("Authorization")&&readCustomerSessionCookie(request));
+  if(!token) fail("Authentication required",401);
+  if(!bearer&&request.method!=="GET")requireSameOriginAction(request);
+  const [payload,signature]=token.split(".");
   const expected=await hmac(env.SESSION_SECRET,payload);
   if(signature.length!==expected.length) fail("Invalid session",401);
   let difference=0;for(let i=0;i<signature.length;i++)difference|=signature.charCodeAt(i)^expected.charCodeAt(i);
@@ -327,7 +332,21 @@ export default {
         return response({ok:true,products:rows.results||[]},200,origin);
       }
       if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env),200,origin);
-      if(url.pathname==="/api/auth/verify-code"&&request.method==="POST")return response(await otpVerify(await jsonBody(request),env),200,origin);
+      if(url.pathname==="/api/auth/verify-code"&&request.method==="POST"){
+        const verified=await otpVerify(await jsonBody(request),env);
+        const result=response(verified,200,origin);
+        // Cross-origin legacy bearer callers keep working, but the browser's
+        // same-origin customer pages can restore their session across routes.
+        result.headers.set("Set-Cookie",customerSessionCookie(verified.token));
+        return result;
+      }
+      if(url.pathname==="/api/auth/session"&&request.method==="GET")return response({ok:true,email:await authorizedEmail(request,env)},200,origin);
+      if(url.pathname==="/api/auth/session/logout"&&request.method==="POST"){
+        requireSameOriginAction(request);
+        const result=response({ok:true},200,origin);
+        result.headers.set("Set-Cookie",clearCustomerSessionCookie());
+        return result;
+      }
       if(url.pathname==="/api/admin/session/start"&&request.method==="POST") {
         // Explicit OTP proof, never create a permanent session from an existing cookie.
         if(!request.headers.get("Authorization")) fail("Authentication required",401);
