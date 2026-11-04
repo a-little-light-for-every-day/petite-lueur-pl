@@ -1,3 +1,7 @@
+import operationsReceiverSource from './operations-receiver-source.js';
+import{operationsMirrorStatus,drainOperationsMirror}from './operations-mirror.js';
+import{exportOperationsBackup,restoreOperationsBackup,verifyOperationsBackup}from './operations-backup.js';
+import{customerServiceView}from './operations-services.js';
 import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} from './catalog-source.js';
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
@@ -221,7 +225,7 @@ async function paymentReport(body,email,env) {
   return {ok:true,report_id:id,status:"pending_review"};
 }
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil((async()=>{try{await recoverMailClaims(env);const current=await loadOperations(env);for(const g of current.state.groups.filter(g=>g.auto_close&&g.status==='open'&&g.deadline&&Date.parse(g.deadline)<=Date.now())){const latest=await loadOperations(env);await executeOperation({key:'auto-close:'+g.id+':'+Date.parse(g.deadline),version:latest.version,command:{type:'close_group',group_id:g.id,payment_due_at:g.payment_due_at}},'system:approved-deadline',env);}const rows=await env.DB.prepare("SELECT notice_id FROM pl_ops_mail WHERE status='queued' ORDER BY approved_at LIMIT 5").all();for(const r of rows.results||[])await sendQueuedNotice(env,r.notice_id,(n,key)=>sendOperationsMail(env,n,key));}catch{console.error("Operations scheduled task unavailable");}})());},
+  async scheduled(event,env,ctx){ctx.waitUntil((async()=>{try{await recoverMailClaims(env);await drainOperationsMirror(env,{limit:2});const current=await loadOperations(env);for(const g of current.state.groups.filter(g=>g.auto_close&&g.status==='open'&&g.deadline&&Date.parse(g.deadline)<=Date.now())){const latest=await loadOperations(env);await executeOperation({key:'auto-close:'+g.id+':'+Date.parse(g.deadline),version:latest.version,command:{type:'close_group',group_id:g.id,payment_due_at:g.payment_due_at}},'system:approved-deadline',env);}const rows=await env.DB.prepare("SELECT notice_id FROM pl_ops_mail WHERE status='queued' ORDER BY approved_at LIMIT 5").all();for(const r of rows.results||[])await sendQueuedNotice(env,r.notice_id,(n,key)=>sendOperationsMail(env,n,key));}catch{console.error("Operations scheduled task unavailable");}})());},
   async fetch(request,env) {
     const url=new URL(request.url),origin=request.headers.get("Origin")||"";
     if(request.method==="OPTIONS") {
@@ -240,15 +244,25 @@ export default {
           "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         }});
       }
-      if(["/admin-operations","/account","/shop"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'"}});
+      if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'"}});
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+      if(url.pathname==="/api/operations/service-requests"&&request.method==="GET"){const email=await authorizedEmail(request,env);return response({ok:true,requests:customerServiceView((await loadOperations(env)).state,email)},200,origin);}
+      if(['/api/operations/service-request','/api/operations/service-action'].includes(url.pathname)&&request.method==='POST'){
+        const email=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))fail('申請識別碼無效');const type=url.pathname.endsWith('/service-request')?'service_request':body.type;if(!['service_request','service_customer_accept','service_customer_decline'].includes(type))fail('服務操作無效');
+        return response(await executeOperation({key:'service:'+body.key,version:current.version,command:{...body,type,authenticated_email:email}},email,env,{requestIdentity:{...body,type,authenticated_email:email}}),200,origin);
+      }
       if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog((await loadOperations(env)).state),200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
+        if(url.pathname==="/api/admin/ops/receiver-source"&&request.method==="GET")return new Response(operationsReceiverSource,{headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
         if(url.pathname==="/api/admin/ops/export"&&request.method==="GET"){
-          const current=await loadOperations(env);return response({ok:true,format:'pl-operations-backup-v1',exported_at:new Date().toISOString(),version:current.version,state:current.state},200,origin);
+          return response(await exportOperationsBackup(env),200,origin);
         }
+        if(url.pathname==="/api/admin/ops/sync-status"&&request.method==="GET")return response(await operationsMirrorStatus(env),200,origin);
+        if(url.pathname==="/api/admin/ops/sync-drain"&&request.method==="POST")return response(await drainOperationsMirror(env),200,origin);
+        if(url.pathname==="/api/admin/ops/backup-verify"&&request.method==="POST")return response(await verifyOperationsBackup(env,actor),200,origin);
+        if(url.pathname==="/api/admin/ops/restore"&&request.method==="POST"){const raw=await request.text();if(raw.length>20000000)fail('備份超過20MB',413);const b=JSON.parse(raw);return response(await restoreOperationsBackup(b.file,actor,env,{confirmed:b.confirmed,expected_version:b.expected_version}),200,origin);}
         if(url.pathname==="/api/admin/ops/catalog-public-preview"&&request.method==="POST"){
           const products=await readApprovedLegacyCatalog();const current=await loadOperations(env);const plan=planLegacyCatalogImport(products,current.state.groups);return response({ok:true,total:products.length,matched:plan.matched.length,matched_products:plan.matched.map(p=>({code:p.id,name:p.name,variant:p.variant,group_id:p.group_id,price:p.price_twd})),unmatched:plan.unmatched,groups:[...new Set(plan.matched.map(p=>p.group_id))]},200,origin);
         }
@@ -267,7 +281,7 @@ export default {
           const raw=await request.text();if(raw.length>1000000)fail("Import too large",413);let data;try{data=JSON.parse(raw);}catch{fail("Invalid JSON");}return response(await importOperations(data,actor,env),200,origin);
         }
         if(url.pathname==="/api/admin/ops/command"&&request.method==="POST"){
-          const body=await jsonBody(request);if(body.command?.type==='payment_report')fail("Use customer payment report endpoint");
+          const body=await jsonBody(request);if(body.command?.type==='payment_report'||['service_request','service_customer_accept','service_customer_decline'].includes(body.command?.type))fail("Use customer payment report endpoint");
           const result=await executeOperation(body,actor,env);
           if(result.result?.queue&&!result.replayed)result.delivery=await sendQueuedNotice(env,result.result.notice_id,(n,key)=>sendOperationsMail(env,n,key));
           return response(result,200,origin);
@@ -281,7 +295,7 @@ export default {
       }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
-        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
+        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
       }
       if(url.pathname==="/api/operations/payment-report"&&request.method==="POST"){
         const customer=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);

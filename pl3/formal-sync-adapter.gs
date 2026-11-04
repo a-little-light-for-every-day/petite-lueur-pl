@@ -214,6 +214,8 @@ function formalNotion_(v,p) {
 }
 function doPost(e) {
   try {
+    if(e&&e.postData&&e.postData.contents.length<=240000){const envelope=JSON.parse(e.postData.contents);if(typeof envelope.body==='string'&&JSON.parse(envelope.body).protocol==='pl3-operations-v1')return operationsDoPost_(envelope);}
+
     const p=formalSettings_();
     if(!e||!e.postData||e.postData.contents.length>40000)throw Error("Malformed POST");
     const v=formalVerify_(JSON.parse(e.postData.contents),p.PL3_FORMAL_SYNC_SECRET);

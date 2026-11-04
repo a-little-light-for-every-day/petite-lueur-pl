@@ -1,3 +1,4 @@
+import{applyService}from './operations-services.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
 const must=(ok,m,status=400)=>{if(!ok)throw failure(m,status);};
@@ -5,7 +6,7 @@ const text=(v,n=300)=>String(v??'').trim().slice(0,n);
 const email=v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||''))&&!/[\r\n]/.test(v);
 const money=v=>{must(Number.isSafeInteger(v)&&v>=0,'金額須為非負整數');return v;};
 const positive=v=>{must(Number.isSafeInteger(v)&&v>0,'數量／金額須為正整數');return v;};
-export const newOperations=()=>({schema:1,products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
+export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
 export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
 const order=(s,id)=>{const o=s.orders.find(x=>x.id===id);must(o,'找不到訂單',404);return o;};
@@ -39,6 +40,7 @@ function allocate(s,r,entries){
 }
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
+ if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
  switch(c.type){
  case 'catalog_restore_approved':{
   must(c.confirmed===true,'請確認沿用舊站已公開核准的內容');let published=0;const blocked=[];
@@ -76,7 +78,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'order_save':{
   const prior=s.orders.find(x=>x.id===c.id);must(!prior||!s.invoices.some(b=>b.order_id===prior.id&&(b.notified||s.allocations.some(a=>a.invoice_id===b.id))),'已通知／收款訂單不可直接改價，請以調整單處理',409);
   must(s.groups.some(g=>g.id===c.group_id&&g.status==='open'),'團次未開放建單');must(email(c.email),'請填有效Email');must(text(c.name),'請填訂購姓名');must(Array.isArray(c.items)&&c.items.length>0&&c.items.length<=50,'請填商品明細');
-  const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:positive(l.shipping_units||1),hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
+  const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:positive(l.shipping_units||1),fulfillment_kind:['service','fee'].includes(l.fulfillment_kind)?l.fulfillment_kind:'physical',hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
   const o={id:prior?.id||text(c.id)||'PL3-'+id,group_id:c.group_id,email:c.email.trim().toLowerCase(),name:text(c.name),status:'active',items,goods_twd:items.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0),first_channel:c.first_channel==='cod'?'cod':'transfer',raw_item_text:'',created_at:prior?.created_at||now,source_url:null,notified_first:false,acceptance:c.acceptance||null};
   if(prior){noticesChanged(s,[prior.id]);Object.assign(prior,o);for(const b of s.invoices.filter(x=>x.order_id===o.id&&x.phase==='first'))b.amount_twd=o.goods_twd;}else s.orders.push(o);changed.push(o.id);result={order_id:o.id};break;
  }
@@ -111,7 +113,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'notice_cancel':{const n=s.notices.find(x=>x.id===c.notice_id);must(n&&['draft','queued','failed'].includes(n.status),'通知不可撤銷',409);n.status='void';break;}
  case 'payment_report':{
-  const o=order(s,c.order_id);must(open(o)&&o.email.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);positive(c.amount_twd);must(['銀行匯款','台灣 Pay','中國信託無卡存款'].includes(c.method),'付款方式無效');must(!c.last5||/^\d{5}$/.test(c.last5),'末五碼格式錯誤');s.reports=s.reports||[];must(!s.reports.some(r=>r.order_id===o.id&&r.status==='pending'&&r.amount_twd===c.amount_twd&&r.last5===(c.last5||'')),'相同回報正在核對，請勿重複',409);s.reports.push({id,order_id:o.id,customer_email:o.email,amount_twd:c.amount_twd,method:c.method,last5:c.last5||'',note:text(c.note,1000),status:'pending',created_at:now});result={report_id:id};break;
+  const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);positive(c.amount_twd);must(['銀行匯款','台灣 Pay','中國信託無卡存款'].includes(c.method),'付款方式無效');must(!c.last5||/^\d{5}$/.test(c.last5),'末五碼格式錯誤');s.reports=s.reports||[];must(!s.reports.some(r=>r.order_id===o.id&&r.status==='pending'&&r.amount_twd===c.amount_twd&&r.last5===(c.last5||'')),'相同回報正在核對，請勿重複',409);s.reports.push({id,order_id:o.id,customer_email:o.email,amount_twd:c.amount_twd,method:c.method,last5:c.last5||'',note:text(c.note,1000),status:'pending',created_at:now});result={report_id:id};break;
  }
  case 'receipt_confirm':{
   must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');must(!s.receipts.some(r=>r.transaction_id===text(c.transaction_id)),'此交易已入帳，請勿重複',409);
@@ -129,13 +131,13 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(text(c.official_order)&&text(c.shop)&&text(c.evidence),'請填官方訂單、通路與證據');must(!/animate|アニメイト/i.test(c.shop),'此通路不列為PL商業代購採購通路');must(['JPY','KRW','TWD'].includes(c.currency),'幣別無效');money(c.original_amount);money(c.actual_twd);must(Array.isArray(c.items)&&c.items.length>0,'請指定實購品項');
   must(!s.purchases.some(p=>p.shop===text(c.shop)&&p.official_order===text(c.official_order)),'官方訂單已登錄，請勿重複',409);
   if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
-  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(v=>v.id===x.item_id);must(open(o)&&l,'找不到有效品項');positive(x.quantity);must(!l.hold||l.hold.released_at,'品項延後條件尚未解除');must(firstPaid(s,o)||(c.advance_approved===true&&text(c.advance_reason)),'一補未清償；如已核准代墊須明確登錄原因');must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;}
+  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(v=>v.id===x.item_id);must(open(o)&&l,'找不到有效品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物採購');positive(x.quantity);must(!l.hold||l.hold.released_at,'品項延後條件尚未解除');must(firstPaid(s,o)||(c.advance_approved===true&&text(c.advance_reason)),'一補未清償；如已核准代墊須明確登錄原因');must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;}
   if(c.actual_twd)s.config.card_available_twd-=c.actual_twd;
   s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,items:c.items,created_at:now});break;
  }
  case 'movement_record':{
   const stages=['purchased','overseas','transit','taiwan','shipped','delivered'];must(['overseas','transit','taiwan','delivered'].includes(c.stage),'此階段請使用專用出貨操作');must(text(c.evidence),'請填物流／入庫證據');must(Array.isArray(c.items)&&c.items.length>0,'請指定品項');
-  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l&&open(o),'找不到有效品項');positive(x.quantity);const prev=stages[stages.indexOf(c.stage)-1];must(x.quantity<=l[prev]-l[c.stage],'超過上一階段已確認數量');l[c.stage]+=x.quantity;}
+  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l&&open(o),'找不到有效品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物物流');positive(x.quantity);const prev=stages[stages.indexOf(c.stage)-1];must(x.quantity<=l[prev]-l[c.stage],'超過上一階段已確認數量');l[c.stage]+=x.quantity;}
   result={stage:c.stage};break;
  }
  case 'second_settle':{
@@ -147,7 +149,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(text(c.tracking)&&text(c.carrier)&&text(c.recipient)&&text(c.destination)&&text(c.phone),'請填物流單號、配送方式與完整收件資料');must(c.confirmed===true&&Array.isArray(c.items)&&c.items.length>0,'請確認出貨清單');let cod=0;const cod_claims=[];const ids=[...new Set(c.items.map(x=>x.order_id))];
   for(const oid of ids){const o=order(s,oid);must(open(o),'取消單不能出貨');for(const phase of ['first','second']){const b=s.invoices.find(x=>x.order_id===oid&&x.phase===phase);must(b?.finalized&&b.amount_twd!==null,'一補／二補尚未確認');const due=balance(s,b);if(b.channel==='cod'){const reserved=s.shipments.flatMap(sh=>sh.cod_claims||[]).filter(x=>x.invoice_id===b.id).reduce((n,x)=>n+x.amount_twd,0);const collect=Math.max(0,due-reserved);cod+=collect;if(collect)cod_claims.push({invoice_id:b.id,amount_twd:collect});}else must(due===0,'尚有未收款項，不能出貨');}}
   must(c.expected_cod_twd===cod,'商品COD金額已變動，請重新確認寄件金額',409);
-  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l,'找不到品項');positive(x.quantity);must(x.quantity<=l.taiwan-l.shipped,'超過台灣倉可寄數量');l.shipped+=x.quantity;}
+  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l,'找不到品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物出貨');positive(x.quantity);must(x.quantity<=l.taiwan-l.shipped,'超過台灣倉可寄數量');l.shipped+=x.quantity;}
   must(!s.shipments.some(x=>x.carrier===text(c.carrier)&&x.tracking===text(c.tracking)),'物流單號已登錄',409);
   const shipment={id,carrier:text(c.carrier),tracking:text(c.tracking),recipient:text(c.recipient),phone:text(c.phone),destination:text(c.destination,1000),items:c.items,cod_twd:cod,cod_claims,created_at:now};s.shipments.push(shipment);
   for(const oid of ids){const o=order(s,oid);if(!email(o.email))continue;const n={id:id+':'+oid,kind:'shipping',to:o.email,subject:'【Petite Lueur PL】出貨通知｜'+oid,body:`您好：\n\n訂單 ${oid} 已完成本次寄件登錄。\n配送方式：${shipment.carrier}\n物流單號：${shipment.tracking}\n${cod?'貨到付款金額請依寄件單與查單資訊核對。\n':''}\nPetite Lueur PL`,attachments:[],order_ids:[oid],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);}result={shipment_id:id};break;
@@ -169,14 +171,14 @@ export function operationalTasks(s,now=new Date().toISOString()){
  for(const b of s.invoices){if(b.status==='void')continue;const due=balance(s,b);if(!b.finalized)add('invoice',b.id,'帳款金額待確認',b.order_id);else if(due>0&&b.channel==='cod')add('invoice',b.id,'貨到付款待平台撥款',b.order_id+' · NT$'+due);else if(due>0)add('invoice',b.id,b.due_at&&b.due_at<now?'付款已逾期':'等待付款',b.order_id+' · NT$'+due,b.due_at&&b.due_at<now?1:3);}
  for(const p of s.purchases)if(p.actual_twd===null)add('purchase',p.id,'實際刷卡金額待核對',p.shop+' · '+p.official_order,1);
  for(const b of s.invoices)if(b.finalized&&b.amount_twd!==null&&balance(s,b)===null)add('invoice',b.id,'歷史已核對款項待補入帳證據',b.order_id+' · 不列為未付款、不催繳',1);
- for(const o of s.orders.filter(open)){if(!email(o.email)&&o.first_channel!=='cod')add('order',o.id,'缺少Email，無法通知',o.id,1);if(!o.items.length)add('order',o.id,'商品明細待補齊',o.id,1);for(const l of o.items){if(l.hold&&!l.hold.released_at)add('purchase',l.id,'採購延後，須確認解除條件',o.id+' · '+l.name+' · '+l.hold.until,1);else if(l.purchased<l.quantity&&firstPaid(s,o))add('purchase',l.id,'可採購',o.id+' · '+l.name+' ×'+(l.quantity-l.purchased));if(l.purchased>l.overseas)add('warehouse',l.id,'等待海外倉入庫',o.id+' · '+l.name,3);if(l.taiwan>l.shipped)add('shipment',l.id,'台灣倉待出貨',o.id+' · '+l.name);}}
+ for(const o of s.orders.filter(open)){if(!email(o.email)&&o.first_channel!=='cod')add('order',o.id,'缺少Email，無法通知',o.id,1);if(!o.items.length)add('order',o.id,'商品明細待補齊',o.id,1);for(const l of o.items.filter(l=>!['service','fee'].includes(l.fulfillment_kind))){if(l.hold&&!l.hold.released_at)add('purchase',l.id,'採購延後，須確認解除條件',o.id+' · '+l.name+' · '+l.hold.until,1);else if(l.purchased<l.quantity&&firstPaid(s,o))add('purchase',l.id,'可採購',o.id+' · '+l.name+' ×'+(l.quantity-l.purchased));if(l.purchased>l.overseas)add('warehouse',l.id,'等待海外倉入庫',o.id+' · '+l.name,3);if(l.taiwan>l.shipped)add('shipment',l.id,'台灣倉待出貨',o.id+' · '+l.name);}}
  for(const r of s.receipts)if(credit(s,r)>0)add('credit',r.id,'溢付款待分配／退款',r.customer_email+' · NT$'+credit(s,r));
  return tasks.sort((a,b)=>a.priority-b.priority||a.id.localeCompare(b.id));
 }
 
 export function operatingStatus(s,o){
  if(o.status==='cancelled')return '已取消';if(o.status==='excluded')return '取消／缺貨歷史';
- const lines=o.items||[],sum=k=>lines.reduce((n,l)=>n+(Number(l[k])||0),0),q=sum('quantity');
+ if(o.status==='completed')return '已完成';const lines=(o.items||[]).filter(l=>!['service','fee'].includes(l.fulfillment_kind)),sum=k=>lines.reduce((n,l)=>n+(Number(l[k])||0),0),q=sum('quantity');
  if(q&&sum('delivered')===q)return '已完成';if(sum('shipped')>0)return sum('shipped')===q?'台灣已寄出':'部分已寄出';
  const bills=s.invoices.filter(b=>b.order_id===o.id&&b.status!=='void'),second=bills.find(b=>b.phase==='second'),first=bills.find(b=>b.phase==='first');
  if(q&&sum('taiwan')>0){if(!second?.finalized)return '商品抵台／待二補結算';if(balance(s,second)>0)return second.channel==='cod'?'抵台／二補貨到付款':'等待第二次付款';return '抵台／待出貨';}

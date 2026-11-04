@@ -3,3 +3,5 @@
 pl3/console/node_modules/
 pl3/operations-bundle.js
 pl3/operations-html.js
+
+pl3/operations-receiver-source.js

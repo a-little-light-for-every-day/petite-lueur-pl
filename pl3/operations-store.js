@@ -1,13 +1,14 @@
+import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_commands(id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,actor TEXT NOT NULL,command_type TEXT NOT NULL,result_json TEXT NOT NULL CHECK(json_valid(result_json)),version INTEGER NOT NULL UNIQUE,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_mail(id TEXT PRIMARY KEY,notice_id TEXT NOT NULL UNIQUE,snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN('queued','sending','sent','failed','unknown','void')),approved_by TEXT NOT NULL,approved_at TEXT NOT NULL,gmail_message_id TEXT,gmail_thread_id TEXT,error_code TEXT,claimed_at TEXT,sent_at TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_attachments(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,base64_data TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`;
 export const opsError=(m,status=400)=>Object.assign(new Error(m),{status});
-const entityKinds=['products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
+export const entityKinds=['service_requests','products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
 const entitySchema="CREATE TABLE IF NOT EXISTS pl_ops_entities(kind TEXT NOT NULL,id TEXT NOT NULL,document_json TEXT NOT NULL CHECK(json_valid(document_json)),updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(kind,id));CREATE TABLE IF NOT EXISTS pl_ops_entity_history(command_id TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL,before_json TEXT,after_json TEXT,actor TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(command_id,kind,entity_id));";
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
-export async function installOperations(env){for(const statement of (schema+entitySchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
+export async function installOperations(env){for(const statement of (schema+entitySchema+mirrorSchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
 export async function loadOperations(env){
  const row=await env.DB.prepare("SELECT version,document_json FROM pl_ops_state WHERE id='main'").first();if(!row)throw opsError('營運資料尚未初始化',503);
  const meta=JSON.parse(row.document_json),state={...newOperations(),...meta};
@@ -18,9 +19,9 @@ export async function loadOperations(env){
 export async function operationsView(env){
  const {version,state}=await loadOperations(env);const mail=await env.DB.prepare('SELECT notice_id,status,gmail_message_id,gmail_thread_id,error_code,sent_at FROM pl_ops_mail ORDER BY updated_at DESC LIMIT 500').all();
  for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void')Object.assign(n,{status:m.status,gmail_message_id:m.gmail_message_id,gmail_thread_id:m.gmail_thread_id,error_code:m.error_code,sent_at:m.sent_at});}
- return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:'not_connected',source_mode:'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
+ return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:operationsMirrorEnabled(env)?'enabled':'not_connected',source_mode:'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
 }
-async function commit(env,current,next,{key,type,requestHash,actor,result,notice}){
+export async function commit(env,current,next,{key,type,requestHash,actor,result,notice}){
  const changes=[];
  for(const kind of entityKinds){const oldMap=new Map((current.state[kind]||[]).map(x=>[x.id,JSON.stringify(x)]));const seen=new Set();for(const x of next[kind]||[]){const json=JSON.stringify(x);seen.add(x.id);if(current.legacy_document||oldMap.get(x.id)!==json)changes.push({kind,id:x.id,before:oldMap.get(x.id)||null,after:json});}for(const [id,before]of oldMap)if(!seen.has(id))changes.push({kind,id,before,after:null});}
  const metadata=JSON.stringify({schema:next.schema,config:next.config,history:next.history});const changesJson=JSON.stringify(changes);
