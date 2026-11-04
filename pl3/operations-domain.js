@@ -59,6 +59,38 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const g=s.groups.find(g=>g.id===c.group_id);must(g&&c.confirmed,'請確認商品歸屬團次');must(Array.isArray(c.products)&&c.products.length>0&&c.products.length<=500,'商品匯入範圍無效');s.products=s.products||[];let imported=0;
   for(const x of c.products){const pid='catalog:'+text(x.id,160);if(s.products.some(p=>p.id===pid))continue;must(x.id&&text(x.name)&&Number.isSafeInteger(x.price_twd)&&x.price_twd>0,'來源商品價格或名稱不完整');s.products.push({id:pid,group_id:g.id,name:text(x.name),sku:text(x.official_sku||x.id),sku_confirmed:!!x.official_sku,variant:text(x.variant),price_twd:x.price_twd,shipping_units:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0?x.shipping_units:1,shipping_units_confirmed:Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0,quantity_limit:x.quantity_limit||null,source_url:text(x.source_url||g.source_url,2000),image_url:text(x.image_url,2000),image_official:false,published:false,status:x.status==='sold_out'?'sold_out':'available',source_snapshot:x.source_snapshot||x,updated_at:now});imported++;}result={imported};break;
  }
+ case 'catalog_batch_draft':{
+  const g=s.groups.find(x=>x.id===c.group_id);
+  must(g&&c.confirmed===true,'請確認商品草稿的團次歸屬');
+  must(Array.isArray(c.products)&&c.products.length>0&&c.products.length<=500,'商品匯入範圍無效');
+  const items=s.products||[],seen=new Set(),pending=[];let skipped=0;
+  for(const x of c.products){
+   const sourceId=text(x?.id,160),name=text(x?.name),variant=text(x?.variant),url=text(x?.source_url,2000);
+   must(sourceId&&sourceId===String(x.id).trim()&&name&&Number.isSafeInteger(x.price_twd)&&x.price_twd>0,'來源商品編號、名稱或售價不完整');
+   must(!seen.has(sourceId),'同次匯入含重複來源商品編號：'+sourceId);seen.add(sourceId);
+   let parsed;try{parsed=new URL(url);}catch{throw failure('商品來源網址無效：'+sourceId);}
+   must(parsed.protocol==='https:'&&!/animate/i.test(url),'商品須有 HTTPS 官方來源且不得使用 Animate：'+sourceId);
+   const image=text(x.image_url,2000);
+   if(image){let imageURL;try{imageURL=new URL(image);}catch{throw failure('圖片來源網址無效：'+sourceId);}
+    must(imageURL.protocol==='https:','圖片須為 HTTPS：'+sourceId);
+   }
+   const pid='catalog:'+sourceId,sku=text(x.official_sku||sourceId);
+   const old=items.find(p=>p.id===pid);
+   if(old){
+    must(old.group_id===g.id&&old.name===name&&old.variant===variant&&old.price_twd===x.price_twd&&old.source_url===url&&old.image_url===image&&old.sku===sku&&old.published===false,
+     '來源編號已存在但資料不同，請先人工核對：'+sourceId,409);
+    skipped++;continue;
+   }
+   must(!items.some(p=>p.group_id===g.id&&p.sku===sku&&p.variant===variant)&&!pending.some(p=>p.sku===sku&&p.variant===variant),
+    '商品貨號與規格重複：'+sourceId,409);
+   const units=Number.isSafeInteger(x.shipping_units)&&x.shipping_units>0?x.shipping_units:1;
+   pending.push({id:pid,group_id:g.id,name,sku,sku_confirmed:!!x.official_sku,variant,price_twd:x.price_twd,
+    shipping_units:units,shipping_units_confirmed:false,quantity_limit:null,source_url:url,image_url:image,
+    image_official:false,published:false,status:x.status==='sold_out'?'sold_out':'available',
+    source_snapshot:{...x,published:false,group_id:g.id},updated_at:now});
+  }
+  s.products=items.concat(pending);result={imported:pending.length,skipped};break;
+ }
  case 'product_save':{
   must(s.groups.some(g=>g.id===c.group_id),'請指定有效團次');must(text(c.name)&&text(c.sku),'商品名稱與官方貨號必填');money(c.price_twd);must(c.price_twd>0,'售價須大於0');positive(c.shipping_units);if(c.quantity_limit!==null&&c.quantity_limit!==undefined)positive(c.quantity_limit);
   const validURL=v=>{try{return new URL(v).protocol==='https:'}catch{return false}};
@@ -74,6 +106,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'group_save':{
   const g=s.groups.find(x=>x.id===c.id);must(text(c.title),'請輸入團次名稱');if(c.auto_close)must(c.deadline&&Number.isFinite(Date.parse(c.deadline))&&c.payment_due_at&&Date.parse(c.payment_due_at)>Date.parse(c.deadline),'自動結單須設定有效截止與付款期限');
+  if(c.create_only)must(!g,'原團次 ID 已存在，禁止覆寫；請使用編輯團次',409);
   const data={id:g?.id||text(c.id,160)||id,title:text(c.title),deadline:c.deadline||null,payment_due_at:c.payment_due_at||null,source_url:text(c.source_url,2000),auto_close:c.auto_close===true,status:['open','closed','draft','cancelled'].includes(c.status)?c.status:g?.status||'open'};
   if(g)Object.assign(g,data);else s.groups.push(data);result={group_id:data.id};break;
  }
