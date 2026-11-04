@@ -2030,7 +2030,8 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function plModeOfficialPost(p){
     if(!p)return '';
     if(plYonaIsGroup(p))return PL_YONA_OFFICIAL_X;
-    const original=String(p.officialXPostUrl||'').trim();
+    const prior=(INITIAL_STORE_DATA.products||[]).find(row=>String(row.code||'')===String(p.code||'')&&String(row.title||'')===String(p.title||''));
+    const original=String(p.officialXPostUrl||(prior&&prior.officialXPostUrl)||'').trim();
     if(/^https:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[A-Za-z0-9_]{1,15}\/status\/\d+(?:[?].*)?$/.test(original))return original;
     const title=String(p.title||''),group=String(p.campaignName||'');
     const src=String(p.sourceUrl||''),source=String(p.source||'');
@@ -2111,6 +2112,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   // PL 9.48.5: 官方 X 或官方原始活動/販售頁在左，全部商品直接排列在右。
   // 每個來源連結只對應同一團次；未核對到原始 X 帖文時絕不塞入其他貼文。
   const PL_VERIFIED_CAMPAIGN_SOURCES=[
+    {test:/^《現在的是哪一個多聞！？》Candy 系列｜CRUX・2027年(?:1月底出貨|3月貼紙)$/,label:'CRUX 官方 Candy 系列商品',url:'https://crux-onlinestore.com/shopbrand/ct298',x:'https://x.com/crux_anime/status/2113103436099309782'},
     {test:/^超時空輝耀姬！｜TreeVillage Cafe 官方通販$/,label:'TreeVillage 官方活動公告',url:'https://tree-village.jp/news/014472.html',x:'https://x.com/kaguyahimegoods/status/2109119810428936580',tweetKind:'third_party'},
     {test:/^戰慄殺機（BANANA FISH）｜Noitamina Apparel$/,label:'Noitamina Apparel 官方商品專區',url:'https://www.noitamina-apparel.com/?cbid=2470371&csid=0&mode=cate',x:'https://x.com/noitaminaaparel/status/2105130529712668790'},
     {test:/^薰香花朵凜然綻放｜AMNIBUS 美式餐廳ver\.$/,label:'AMNIBUS STORE 官方美式餐廳系列公告',url:'https://store.amnibus.com/kaoruhana-storeblue/',x:'https://x.com/amnibus_store/status/2108392014974718370'},
@@ -4072,5 +4074,24 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 })();
 </script>
 <p style="text-align:center;padding:16px"><a href="https://a-little-light-for-every-day.github.io/petite-lueur-pl/privacy.html">資料使用與隱私說明</a></p>
+
+<style id="pl3LookupLayoutFix">
+#lookup.pl3Lookup{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(280px,440px);gap:28px;align-items:center;max-width:1120px;margin:40px auto;padding:28px;border:1px solid #e6d6cd;border-radius:20px;background:#fffdfb;min-height:0;box-sizing:border-box;scroll-margin-top:100px}
+#lookup.pl3Lookup h2{margin:8px 0 12px;font-size:28px}
+#lookup.pl3Lookup p{margin:0;color:#79665e;line-height:1.8}
+#lookup.pl3Lookup .pl3LookupAction{padding:22px;background:#f7f1ec;border-radius:14px;min-width:0}
+#lookup.pl3Lookup .legacyPrimary{display:flex;justify-content:center;align-items:center;width:100%;min-height:48px;box-sizing:border-box;text-align:center;text-decoration:none}
+#lookup.pl3Lookup .pl3LookupAction p{margin-top:12px;font-size:13px}
+@media(max-width:760px){#lookup.pl3Lookup{grid-template-columns:1fr;gap:18px;margin:24px 16px;padding:22px}#lookup.pl3Lookup h2{font-size:25px}#lookup.pl3Lookup .pl3LookupAction{padding:16px}}
+</style>
+<script id="pl3LookupLayoutFixScript">
+document.addEventListener('DOMContentLoaded',function(){
+ if(!window.PL3_OPERATING_STOREFRONT)return;
+ const section=document.getElementById('lookup');if(!section)return;
+ section.classList.add('pl3Lookup');
+ section.innerHTML='<div><div class="eyebrow">ORDER LOOKUP</div><h2>查詢我的訂單</h2><p>使用下單時的 Email 驗證身分，即可查看訂單、付款資料與處理進度，也能回報付款。</p></div><div class="pl3LookupAction"><a class="legacyPrimary" href="https://pl3-staging-api.petitelueur-pl.workers.dev/account">前往 Email 安全查單 →</a><p>進入後輸入 Email，取得六位數驗證碼。驗證後才會顯示您的訂單。</p></div>';
+});
+</script>
+
 </body>
 </html>
