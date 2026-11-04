@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "a-little-light-for-every-day",
+  "main": "frontdoor-worker.js",
+  "compatibility_date": "2026-11-04",
+  "workers_dev": true,
+  "services": [
+    {
+      "binding": "PL3_BACKEND",
+      "service": "pl3-staging-api"
+    }
+  ]
+  // Intentionally no D1, secrets or cron: the bound Worker owns all three.
+}
