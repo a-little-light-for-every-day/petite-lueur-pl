@@ -136,3 +136,6 @@ if (!pl3AuthTest.includes('PL 3.0｜安全查單測試') ||
 }
 fs.mkdirSync('dist/pl3', { recursive: true });
 fs.writeFileSync('dist/pl3/auth-test.html', pl3AuthTest);
+
+// Publish the factual application data-use disclosure alongside the storefront.
+fs.copyFileSync('privacy.html','dist/privacy.html');
