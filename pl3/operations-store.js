@@ -102,10 +102,17 @@ export async function saveOperationsAttachment(body,actor,env){
  await env.DB.prepare('INSERT INTO pl_ops_attachments(id,name,mime_type,size_bytes,sha256,base64_data,created_by) VALUES(?,?,?,?,?,?,?)').bind(id,name,body.mime_type,raw.length,sha256,body.base64_data,actor).run();return {ok:true,file:{id,name,mime_type:body.mime_type,size_bytes:raw.length,sha256}};
 }
 
+// A shared split-group quota must be separate from a per-order purchase limit.
+// Manual holds account for approved allocations which have not yet become orders.
+export function remainingClaimSlots(state,product){
+ if(product.claim_capacity===null||product.claim_capacity===undefined)return null;
+ const claimed=(state.orders||[]).filter(o=>o.group_id===product.group_id&&!['cancelled','excluded'].includes(o.status)).flatMap(o=>o.items||[]).filter(l=>l.sku===product.sku&&(l.variant||'')===(product.variant||'')).reduce((sum,l)=>sum+l.quantity,0);
+ return Math.max(0,product.claim_capacity-(product.manual_claims||0)-claimed);
+}
 export function publicOperationsCatalog(state){
  const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
- const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&groups.some(g=>g.id===p.group_id));
- return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url}))};
+ const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&groups.some(g=>g.id===p.group_id)&&remainingClaimSlots(state,p)!==0);
+ return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(p=>{const remaining=remainingClaimSlots(state,p);return{id:p.id,group_id:p.group_id,name:p.name,sku:p.sku,variant:p.variant,price_twd:p.price_twd,quantity_limit:remaining===null?p.quantity_limit:Math.min(p.quantity_limit||99,remaining),image_url:p.image_url,source_url:p.source_url,remaining_slots:remaining};})};
 }
 export async function checkoutOperations(body,email,env){
  if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
@@ -116,7 +123,7 @@ export async function checkoutOperations(body,email,env){
  const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('識別碼已被其他內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
  const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
- const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
+ const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit)||(remainingClaimSlots(current.state,p)!==null&&x.quantity>remainingClaimSlots(current.state,p)))throw opsError('商品或拆團名額已不足，請重新整理',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
  if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
  return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
 }
