@@ -66,7 +66,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.published)must(c.confirmed===true&&(!c.image_url||c.image_official===true),'上架前須確認商品內容；有圖時須為官方原圖');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
   must(!(s.products||[]).some(p=>p.id!==pid&&p.group_id===c.group_id&&p.sku===text(c.sku)&&p.variant===text(c.variant)),'同團貨號與規格重複');
-  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:true,variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
+  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:c.shipping_units,shipping_units_confirmed:true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
   s.products=s.products||[];if(prior)Object.assign(prior,p);else s.products.push(p);result={product_id:pid};break;
  }
  case 'order_group':{
