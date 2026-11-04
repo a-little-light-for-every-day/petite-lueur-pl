@@ -40,6 +40,9 @@ nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:22
 <section id="overview" class="summary-grid" aria-label="今日待辦摘要"></section>
 <section class="card" id="formal-sync-panel" aria-label="PL3 正式同步隔離驗收">
 <h2>🧪 PL3 獨立同步驗收</h2><p class="muted">只處理已核准的 PL3-FORMAL 測試團次；不會操作 PL2 或寄出通知。</p>
+<p class="notice">僅管理員可建立：固定假信箱、假姓名、假商品 NT$100，隱藏草稿團次不會公開。付款回報為虛構資料，絕對不要核帳或寄送付款通知。</p>
+<div class="actionbar"><button id="qa-create" type="button">建立隔離測試訂單</button><button id="qa-replay" type="button" class="alt" disabled>重送同一筆（防重測試）</button><button id="qa-report" type="button" class="alt" disabled>建立假付款回報</button></div>
+<p id="qa-result" class="hint" role="status" aria-live="polite">尚未建立本次測試訂單。</p>
 <div class="actionbar"><button id="formal-status" type="button" class="alt">查看同步狀態</button><button id="formal-drain" type="button">手動同步一批</button></div>
 <p id="formal-result" class="hint" role="status" aria-live="polite">尚未讀取狀態。</p><p id="formal-last-run" class="hint" role="status" aria-live="polite"></p>
 </section>
@@ -197,6 +200,22 @@ function renderHistory(){
 for(const b of document.querySelectorAll("nav button"))b.addEventListener("click",()=>setTab(b.dataset.tab));
 $("refresh").addEventListener("click",()=>{if(busy)return;setBusy(true);refresh().catch(err=>msg(err.message,"error")).finally(()=>setBusy(false));});
 function syncCounts(d){return "Sheets／Notion送達："+d.delivered+"；等待重試："+d.retry+"；停止重試："+d.dead+"；目的地衝突："+d.conflict;}
+let qaKey="",qaOrder="";
+async function qaAction(kind){
+ if(busy)return;setBusy(true);
+ try{
+  if(kind==="create")qaKey="PL3QA_"+crypto.randomUUID().replace(/-/g,"");
+  if(kind==="report"&&!qaOrder)throw Error("請先建立本次測試訂單");
+  const r=kind==="report"?await request("/api/admin/qa/payment-report","POST",{order_id:qaOrder}):await request("/api/admin/qa/checkout","POST",{idempotency_key:qaKey});
+  if(kind==="report")$("qa-result").textContent="假付款回報 ID："+r.report_id+"（"+r.status+"，未核帳；重送："+(r.replayed?"是":"否")+"）";
+  else{qaOrder=r.order_id;$("qa-result").textContent="測試訂單 ID："+qaOrder+"；NT$"+(r.total_twd??100)+"；重送："+(r.replayed?"是，未重複建立":"否");}
+  await refresh();
+ }catch(err){$("qa-result").textContent="測試未完成："+err.message;}
+ finally{setBusy(false);$("qa-replay").disabled=!qaOrder;$("qa-report").disabled=!qaOrder;}
+}
+$("qa-create").addEventListener("click",()=>qaAction("create"));
+$("qa-replay").addEventListener("click",()=>qaAction("replay"));
+$("qa-report").addEventListener("click",()=>qaAction("report"));
 async function formalStatus(){const s=await request("/api/admin/formal-sync/status");$("formal-result").textContent="啟用："+(s.enabled?"是":"否")+"；待處理："+s.events.pending+"；重試："+s.events.retry+"；已完成："+s.events.delivered+"；衝突："+s.open_conflicts+"。"+syncCounts(s.deliveries);return s;}
 $("formal-status").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
 $("formal-drain").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const s=await formalStatus();if(!s.enabled||!s.migration_ready)throw Error("正式同步尚未開啟或資料庫未完成遷移");if(!confirm("僅對 PL3-FORMAL 白名單假團次手動同步最多 2 筆事件至獨立 Sheets 與 Notion，確定？"))return;const r=await request("/api/admin/formal-sync/drain","POST",{limit:2});$("formal-last-run").textContent="上次手動觸發：處理 "+r.examined+"、成功 "+r.delivered+"、待重試 "+r.retry+"、衝突 "+r.conflict+"、停止重試 "+r.dead;await formalStatus();}catch(err){msg(err.message,"error");}finally{setBusy(false);}});
