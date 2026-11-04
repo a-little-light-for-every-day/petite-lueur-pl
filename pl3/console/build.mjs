@@ -9,6 +9,7 @@ writeFileSync('../operations-bundle.js','// Generated from console/app.jsx. Reac
 const homepage=readFileSync('homepage.html','utf8').replace('__PL_OFFICIAL_LOGO__','data:image/jpeg;base64,'+readFileSync('../../assets/pl-logo.jpg').toString('base64'));
 writeFileSync('../homepage-html.js','// Generated PL3 public homepage.\nexport default '+JSON.stringify(homepage)+';\n');
 writeFileSync('../privacy-html.js','// Generated PL3 privacy notice.\nexport default '+JSON.stringify(readFileSync('privacy.html','utf8'))+';\n');
+writeFileSync('../admin-html.js','// Generated from admin-test.html.\nexport default '+JSON.stringify(readFileSync('../admin-test.html','utf8'))+';\n');
 
 writeFileSync('../operations-receiver-source.js','// Generated owner-only receiver source. No credentials included.\nexport default '+JSON.stringify(readFileSync('../formal-sync-adapter.gs','utf8')+'\n'+readFileSync('../operations-receiver.gs','utf8'))+';\n');
 
