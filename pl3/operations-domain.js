@@ -1,3 +1,4 @@
+import{applyBenefit}from './operations-benefits.js';
 import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{applyService}from './operations-services.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
@@ -42,6 +43,7 @@ function allocate(s,r,entries){
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
+ if(c.type.startsWith('benefit_'))return applyBenefit(s,c,{id,now});
  switch(c.type){
  case 'legacy_reconcile':{result=completeLegacyOperations(s,c,{now,id});break;}
  case 'catalog_restore_approved':{
