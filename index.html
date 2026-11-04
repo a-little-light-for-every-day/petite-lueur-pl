@@ -1781,6 +1781,8 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     else document.addEventListener('DOMContentLoaded',ensureFrame,{once:true});
   })();
 </script>
+<script data-pl3-cutover="1">window.PL3_OPERATING_STOREFRONT=true;window.PL2_READONLY_RPC=window.plGithubRpc;window.plGithubRpc=()=>Promise.reject(Error("3.0連線暫時不可用，請稍後重試；尚未送出訂單。"));</script>
+<script src="https://pl3-staging-api.petitelueur-pl.workers.dev/storefront-cutover.js"></script>
 <script id="plStoreMainCode" type="text/plain">
   function decodeBase64UrlUtf8(value){
     let b64=String(value||'').replace(/-/g,'+').replace(/_/g,'/');
@@ -2613,7 +2615,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     for(const p of full){const code=String(p.code||'').trim();if(code&&!seen.has(code)){list.push(p);seen.add(code);}}
     return list;
   }
-  function renderEmbeddedStoreData(){
+  function renderEmbeddedStoreData(){if(window.PL3_OPERATING_STOREFRONT)return false;
     if(window.PL_STATIC_HOSTED){
       // Preview only: campaigns explicitly confirmed live on 2026/11/01.
       // 33 superseded/closed records from the legacy snapshot are NEVER rendered.
@@ -4069,5 +4071,6 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }catch(e){openVerifiedLookup(location.hash);}
 })();
 </script>
+<p style="text-align:center;padding:16px"><a href="https://a-little-light-for-every-day.github.io/petite-lueur-pl/privacy.html">資料使用與隱私說明</a></p>
 </body>
 </html>

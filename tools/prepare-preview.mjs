@@ -113,7 +113,8 @@ for (const asset of ['pl-social-preview-20261030.jpg', 'pl-social-preview-202610
 
 // The owner UI is static only. All privileged data stays behind the GAS OTP bridge.
 const adminHtml = fs.readFileSync('admin/index.html', 'utf8');
-if (!adminHtml.includes('PL_GAS_ADMIN_CALL') || /BRIDGE_SECRET|NOTION_API_TOKEN/.test(adminHtml)) {
+const pl3Admin = adminHtml.includes('data-pl3-admin-redirect="1"') && adminHtml.includes('https://pl3-staging-api.petitelueur-pl.workers.dev/admin-operations');
+if ((!pl3Admin && !adminHtml.includes('PL_GAS_ADMIN_CALL')) || /BRIDGE_SECRET|NOTION_API_TOKEN/.test(adminHtml)) {
   throw new Error('Owner UI failed the static security check');
 }
 fs.mkdirSync('dist/admin', { recursive: true });
