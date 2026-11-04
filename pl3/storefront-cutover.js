@@ -1,7 +1,7 @@
-/* Prepared PL3 entry-point adapter. Loaded only in the isolated preview until formal cutover. */
+/* PL3 operating entry-point adapter. Original mutation calls are never forwarded. */
 (()=>{
  window.PL3_OPERATING_STOREFRONT=true;
- const base='https://pl3-staging-api.petitelueur-pl.workers.dev',old=window.plGithubRpc;
+ const base='https://pl3-staging-api.petitelueur-pl.workers.dev',old=window.PL2_READONLY_RPC||window.plGithubRpc;
  const go=(path,fragment)=>{location.assign(base+path+(fragment||''));return Promise.reject(Error('請在安全入口確認內容並驗證Email，尚未送出訂單。'));};
  window.plGithubRpc=async(name,args=[])=>{
   if(['plStoreBootstrap','plStoreLoadEnhancements'].includes(name)){const r=await fetch(base+'/api/operations/legacy-catalog',{cache:'no-store'});if(!r.ok)throw Error('目前無法核對商品，請稍後重試。');const d=await r.json();const initial=typeof INITIAL_STORE_DATA==='object'?INITIAL_STORE_DATA:{};return{...d,news:initial.news||[],siteSettings:{...(initial.siteSettings||{}),...d.siteSettings}};}

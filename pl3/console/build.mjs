@@ -1,3 +1,4 @@
+import{productionStorefront}from '../production-storefront.js';
 import{build}from'esbuild';import{readFileSync,writeFileSync}from'node:fs';
 const r=await build({entryPoints:['app.jsx'],bundle:true,minify:true,format:'iife',target:['es2022'],define:{'process.env.NODE_ENV':'"production"'},write:false,outdir:'dist',legalComments:'eof'});const js=r.outputFiles.find(f=>f.path.endsWith('.js')).text,css=r.outputFiles.find(f=>f.path.endsWith('.css')).text;
 const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><title>Petite Lueur PL｜營運工作台</title><style>'+css+'</style></head><body><div id="root"></div><script src="/operations-app.js" defer></script></body></html>';
@@ -5,6 +6,6 @@ writeFileSync('../operations-bundle.js','// Generated from console/app.jsx. Reac
 
 writeFileSync('../operations-receiver-source.js','// Generated owner-only receiver source. No credentials included.\nexport default '+JSON.stringify(readFileSync('../formal-sync-adapter.gs','utf8')+'\n'+readFileSync('../operations-receiver.gs','utf8'))+';\n');
 
-const storefront=readFileSync('../../index.html','utf8').replace(/(src|href)=(["'])(assets\/[^"']+)/g,'$1=$2https://a-little-light-for-every-day.github.io/petite-lueur-pl/$3').replace('function renderEmbeddedStoreData(){','function renderEmbeddedStoreData(){if(window.PL3_OPERATING_STOREFRONT)return false;').replace('<script id="plStoreMainCode"','<script src="https://pl3-staging-api.petitelueur-pl.workers.dev/storefront-cutover.js"></script>\n<script id="plStoreMainCode"');
+const storefront=productionStorefront(readFileSync('../../index.html','utf8'),{preview:true});
 writeFileSync('../storefront-preview-html.js','// Generated preview of the current branded storefront.\nexport default '+JSON.stringify(storefront)+';\n');
 writeFileSync('../storefront-cutover-source.js','// Generated public entry-point adapter.\nexport default '+JSON.stringify(readFileSync('../storefront-cutover.js','utf8'))+';\n');
