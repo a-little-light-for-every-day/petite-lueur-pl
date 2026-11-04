@@ -1,65 +1,33 @@
-# PL 3.0 operational implementation — 2026-11-04
+# PL 3.0 formal operating cutover — 2026-11-04
 
-Status: deployed isolated operational backend; production storefront cutover has not been performed.
+Status: the official GitHub Pages storefront and original owner entry now use PL3 operations. The live owner console identifies itself as formal operations. The operating source version is 25.
 
-Implemented: group editing and closure; quoted order items; first and second invoices; payment reports versus confirmed receipts; allocations, credit and evidenced refunds; exact-version owner-approved mail delivery; official purchase recording and card budget; explicit item holds; warehouse quantities and shipment records; product variant editing and private catalog migration; authenticated customer checkout directly into the operating ledger; customer order lookup; full owner backup export with commands, attachments, destination identities and isolated restore verification; anonymous COD reconciliation by immutable order identity without collecting Email; derived live progress; persistent navigation.
+## Verified publication
 
-Actual live verification:
-- 52 legacy orders imported and persisted after browser reload, with no mail queued or sent.
-- 90 existing Aikatsu product variants imported privately into their exact operating group.
-- Existing public catalog source returned 94 approved products, with 92 exact group matches and 2 unresolved matches. The 92 matched products were subsequently imported, and both unresolved products were retained in an explicit draft-only group. Live UI verifies 184 product rows total. Subsequently 84 unchanged, previously approved text-only products with confirmed shipping shares were restored on the PL3 shop across 5 still-open groups. The 8 missing-share products, 2 unassigned products, and 90 legacy Aikatsu drafts remain unpublished.
-- Gmail OAuth refresh succeeded, with no customer delivery attempted.
-- Current Apps Script browser session is signed out. The updated signed operational receiver is prepared, but not deployed or enabled. The live dashboard truthfully reports 52 records / 104 destination deliveries pending, 0 delivered.
-- Commit 78a458708e1b2e5bcc512f5ad49226ee67863ae5 passed both GitHub checks and Cloudflare Workers Builds. Live schema upgrade preserved operating version 17.
-- Live D1 isolated restore verification passed: 52 orders, 184 products, 0 attachments; source version 17 preserved, delivery replay disabled. No active business data was overwritten.
-- Authenticated service intake, owner versioned quotations, customer acceptance into actual first-invoice orders, payment-service completion evidence and physical forwarding logistics are implemented. Services and fees cannot enter physical purchase/shipment records; forwarding uses actual warehouse intake without fabricated purchases.
+- Official Pages commit: 488f1055f51aee1d07820fca51c185383b5058e5, successfully deployed.
+- Formal backend marker: c8105cb480ba5bc013bfebc00f724731f212b35e, successfully deployed. Follow-up commit 5221f10216c2c8e80445f5467a8c5dccf17263e6 passed Workers Builds and both GitHub checks.
+- The branded homepage retains its six service cards and official image assets. Approved catalog: 84 products across five open groups. Unapproved products and closed groups remain unavailable.
+- Official-site checkout transfers only product identifiers and quantities to PL3, where price, inventory, group and identity are revalidated. Legacy identity fields are hidden. If the entry adapter cannot load, submission fails closed rather than falling back to PL2.
+- Live UI handoff verified the same product, quantity and price at PL3 checkout, without submitting a test customer order. The test cart was cleared through the UI. Service routing reaches PL3 authenticated intake. Customer lookup reaches its Email verification screen. The original admin path redirects to the private PL3 owner console and retains the valid owner session.
 
-Automated validation: 112 tests passing before release; includes actual SQLite transactions, CAS, replay, payment reconciliation, immutable approval, unknown-mail outcomes, COD split shipments, checkout pricing and identity, closed-group retries, official-image publication guards, exact catalog matching and Ensky hold preservation.
+## Historical and financial integrity
 
-Remaining cutover requirements:
-- Resolve source catalog differences and verify currently available public offerings. Imported drafts remain private; expired groups remain closed.
-- Connect operating entities to the existing Notion/Sheets receiver. Existing formal sync handles an isolated synthetic cohort and must not be represented as synchronization of these new financial records.
-- Connect all production entry points. The new service inquiry portal is deployed at /services, but the existing GitHub Pages storefront still uses PL2.
-- Verify long-term Gmail authorization and a review-approved delivery using a designated test recipient, without sending real customer drafts.
-- Reconcile historical orders with missing structured items, group assignments, or receipt evidence. Source-verified invoices without receipts are unknown pending reconciliation, not new unpaid debts.
-- Physical mobile acceptance remains unverified. Full backup restoration was exercised on the live D1 database in isolated temporary tables and passed.
+- Fifty-two original orders remain present. Eleven source-verified historical orders received 24 previously missing item rows and five private, closed historical customer groupings. Existing groupings were used where supported by the source. No new customer was invented.
+- Historical unit prices that cannot be established remain null. Original order totals are unchanged. Per-order reconciliation notes preserve missing fees, COD approval, historical price/receipt evidence and shipment uncertainties. The lack of receipt evidence is not converted into a fresh unpaid debt.
+- Independent Notion readback confirmed all 52 mirrored records and 11 reconciliation records. All 104 invoices, 18 receipts and 18 allocations matched the pre-completion baseline on every compared financial field. Original customer identities, sent notices and fund allocations were preserved.
+- Ensky's earlier card deferral remains preserved, with an explicit subsequent completed-purchase record and customer-versus-PL-reserve allocation evidence. Final card settlement is unknown until a statement confirms it; purchasing is not treated as customer payment or restored global card capacity.
+- All 104 Notion/Sheets destination deliveries are acknowledged. Pending, retry, processing, conflict and blocked counts are zero at operating source version 25. Independent original Sheets readback confirms 52 unique orders, including all 11 reconciliation records.
 
-Source identity and financial history are preserved. Ensky's 2026-11-04 deferral never auto-releases on the date; explicit evidence of restored card capacity is required. No bank transfer, purchase, customer notification, or production redirect was performed by the agent.
+## Gmail and delivery
 
-## Continuation verification (2026-11-04 Asia/Taipei)
+- The official Gmail OAuth project is now In production. Its declared scope is only gmail.send. The homepage, owned GitHub Pages domain and factual application privacy disclosure were saved.
+- Google sensitive-scope application verification remains pending; the official owner is the OAuth authorizing user. Customer Email verification does not request access to customer mailboxes. No credentials were copied to source or chat.
+- The exact owner-approved acceptance mail was sent once and verified via official Gmail readback. No customer notification was sent during this cutover. Customer notices still require exact-version owner approval; ambiguous delivery results cannot be blindly resent.
 
-- Official Google owner sign-in verified. Original isolated Apps Script project deployed receiver versions 5 and 6 on its unchanged existing URL; permissions and secret values were not changed.
-- Live owner diagnostics: original Sheets workbook access succeeds. Both original Notion order and inquiry data sources return access denied for the existing connection named `PL3 FORMAL STAGING｜獨立訂單同步（僅測試）`. No integration permissions have been expanded.
-- Before the approval review block, the dashboard confirmed 8 delivered Sheets records and 8 failed Notion deliveries; 88 deliveries remained pending. No Notion delivery was confirmed.
-- Automatic approval review rejected the subsequent bulk write because the initial request restricted external data changes. Operational sync was then explicitly paused through PL3_OPS_SYNC_ENABLED=false; live owner UI confirmed disabled, 8 delivered, 8 retry, 88 pending, no in-flight deliveries. Do not resume bulk external delivery or expand Notion access without explicit approval for these actions.
-- A public, isolated /storefront-preview preserves the latest main storefront and six service cards. Current main index was fetched at blob f8676e80433b6a7ca094c3df5910ba040a5413bb before preparing changes. It has not been published to the production GitHub Pages branch. New public catalog excludes closed and unapproved records; checkout transfers only identifiers/quantities and revalidates prices and limits. Service intake transfers no name, Email, address, payment proof or credentials.
-- Owner-only mail acceptance draft creation is implemented, with a fixed official-owner recipient and no associated customer orders/invoices. No test or customer mail has been approved or sent.
-- 112 local automated tests pass. Physical mobile acceptance, actual approved mail delivery, Notion live synchronization and production cutover remain incomplete.
+## Validation and known limits
 
-- Live preview verification: 84 approved products across 5 open groups displayed; all six service cards retained. Proxy service card reached the authenticated PL3 service entry. A single unsent catalog item was transferred into /shop using identifier and quantity only; no customer information or checkout submission was made.
-- One owner-test draft was saved in D1 (operating version 18), recipient petitelueur.pl@gmail.com, subject `【Petite Lueur PL】3.0 寄信驗收`, status draft, no Gmail ID. It was not approved or sent.
-
-## Explicitly authorized completion — 2026-11-04
-
-The owner explicitly authorized synchronization of the existing 52 orders and their two-phase invoices, confirmed receipts, allocations, refunds and fulfillment to the original workbook and Notion, granting the existing integration access to the two original databases, and sending the exact reviewed owner-only test. This supersedes the earlier read-only restriction only for those named actions.
-
-- Both original Notion databases now grant access to the existing PL3 integration. Receiver self-check confirmed Sheets, orders and inquiry data-source access. No additional databases were granted.
-- Owner-only acceptance mail was sent exactly once. Gmail readback verified SENT and receipt in the official inbox. The operations notice displays its Gmail identifier and exposes no direct resend. No customer notification was sent.
-- The deployed receiver is v7. Live diagnostics proved native Notion source timestamps retain seconds while the public API returns minute precision. Initial migration accepts the same minute only when original business fields match; subsequent deliveries retain exact revisions. Existing website order identifiers are preserved. A source recheck queues only undelivered initial revision conflicts and still stops on actual content differences.
-- Commit 56d4273e91b8fad0f7c416894d73d8d36b481e5f passed Cloudflare deployment and both GitHub checks. 113 local tests passed, including minute-precision acceptance, mismatched amount rejection, cross-minute rejection and website-identity preservation.
-- Fresh Ensky official evidence establishes order 1141138, A/B quantities 2 each, JPY 3740, allocated customer A1/B1 plus PL reserve A1/B1, expected December 2026. Approximate credit notification TWD770 is not a confirmed final statement amount. Earlier card deferral remains historical evidence; global card capacity is not inferred restored. Automatic approval review rejected the additional persistent hold release/purchase entry as outside the named approval, so no Ensky operational change was submitted. Obtain explicit approval before recording those exact completed-purchase facts.
-- The official Google project `petite-lueur-pl-gmail-api` has one Cloudflare Gmail client and remains External / Testing. Publication is disabled pending branding configuration; the scope declaration lists are empty. Application homepage/privacy/terms fields are blank and were inspected but not changed; no new credentials or scopes were granted. A successful test does not establish long-term formal authorization.
-- Production GitHub Pages and its old admin entry remain unchanged. The current main index still matches blob f8676e80433b6a7ca094c3df5910ba040a5413bb. Do not represent the entire business as cut over. Remaining historical item, group and receipt gaps stay visible and cannot be replaced by fabricated prices, receipts or stock.
-
-Final live synchronization verification: operating source version 21; 52 records, 104/104 destination acknowledgements; pending/retry/processing/conflict/blocked all zero. Independent Notion query found all 52 original pages carry PL3 sync events. Bounded original Sheets readback confirmed 52 unique order rows, 104 unique invoice rows, 18 unique confirmed-receipt rows and 18 unique allocation rows. Unchanged rows can legitimately retain the earlier write version because their exact document did not change. No duplicate identity was created.
-
-## Formal cutover execution — 2026-11-04
-
-- The user explicitly requested completing Gmail formal publication, historical item/group/receipt reconciliation, and the production storefront/admin cutover.
-- Official Gmail OAuth project is now In production, with only gmail.send declared. The homepage, owned GitHub Pages domain and factual application data-use disclosure were saved. Google sensitive-scope app verification remains pending; the existing official owner is the only OAuth authorizing user. No customer mailbox access was requested. No secret was copied or exposed.
-- Eleven source-verified historical orders received 24 previously missing item rows and five private, closed historical customer groupings. Existing groupings were used for NOITAMINA requests. Unknown historical unit prices remain null, never allocated from present-day prices. The known total goods amount is unchanged. COD buyer confirmation, missing receipts, unknown fees and actual shipment dates remain explicitly documented per order. No mail was created or sent.
-- Independent Notion readback confirmed all 52 pages, 11 reconciliation records and retained Ensky purchase 1141138. All 104 invoices, 18 receipts and 18 allocations matched the pre-completion baseline on every financial field compared.
-- Native Sheets turns null cell values into blank strings. Receiver v8 normalizes null and blank identically, accepts old blank hashes only when the embedded unchanged source document proves the amount is unknown, and rejects deleting a known amount or an explicit zero. All 104 destination acknowledgements were again confirmed, with zero pending, retry, processing, conflict or blocked records at operating source version 25.
-- 119 automated tests pass, including the nullable amount regression, historical command stale-source/total/fulfillment guards and a fail-closed production checkout. The branded preview displays 84 approved products across five open groups.
-- Production GitHub Pages commit 488f1055f51aee1d07820fca51c185383b5058e5 deployed successfully. The official storefront now uses PL3 checkout, authenticated service requests and customer lookup, while the existing admin entry redirects to the authenticated PL3 owner console. The six branded cards and original official image assets remain. Original checkout identity fields are hidden; a failed adapter stops submission rather than falling back to PL2.
-- Backend production marker commit c8105cb480ba5bc013bfebc00f724731f212b35e deployed successfully. Its PR merge preview exposed a repeated-transform build guard, subsequently changed to accept only an exactly recognized existing cutover and still reject modified gates. No customer checkout was submitted during UI checks.
+- 119 automated tests pass. Relevant cases include CAS and replay, confirmed versus reported funds, COD settlement, immutable notice approval, unknown-mail outcomes, historical stale-source/total/fulfillment guards, nullable amount normalization and fail-closed production handoff.
+- Receiver v8 handles native Sheets blank normalization. Old blank hashes are accepted only when the unchanged embedded document proves the amount is unknown. Removing a known amount or an explicit zero still triggers conflict protection.
+- Live isolated backup restore verification passed at version 25: 52 orders, 184 products and zero stored attachments. Delivery replay remained disabled and active operating data was not overwritten.
+- Bank API reconciliation and carrier-label issuance are not connected. The backend supports owner-confirmed evidence and tracking records; these external actions are not represented as automated.
+- Physical-phone acceptance and a fresh real customer checkout were not performed during the cutover. The customer handoff and authentication screens were verified without creating fictitious customer data or sending additional mail.
