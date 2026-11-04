@@ -9,6 +9,8 @@ import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} fr
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
+import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
+import starTraceHtml from './star-trace-html.js';
 import operationsHtml from "./operations-html.js";
 import operationsBundle from "./operations-bundle.js";
 import homepageHtml from "./homepage-html.js";
@@ -17,7 +19,6 @@ import { readLegacyArchive } from "./legacy-source-store.js";
 import { mapLegacyPayments } from "./legacy-payment-mapper.js";
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
-import {qaPaymentStart,qaPaymentDrain,qaPaymentStatus} from './qa-payment-phases.js';
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
 import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
@@ -334,6 +335,16 @@ export default {
           try{await gmailAccess(env);return response({ok:true,oauth_exchange:'healthy',send_permission:'not_tested',long_term_authorization:'not_verified'},200,origin);}catch(e){return response({ok:false,error:e.code||'GMAIL_UNAVAILABLE'},503,origin);}
         }
       }
+      if(url.pathname.startsWith('/api/admin/star-trace')){
+        const actor=await authorizedOwner(request,env);
+        if(url.pathname==='/api/admin/star-trace'&&request.method==='GET')return response(await readStarTrace(env),200,origin);
+        if(url.pathname==='/api/admin/star-trace/install'&&request.method==='POST')return response(await installStarTrace(env),200,origin);
+        if(url.pathname==='/api/admin/star-trace/command'&&request.method==='POST')return response(await commandStarTrace(env,actor,await jsonBody(request)),200,origin);
+      }
+      if(url.pathname==='/admin-star-trace'&&request.method==='GET'){
+        await authorizedOwner(request,env);
+        return new Response(starTraceHtml,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"}});
+      }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
         return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
@@ -450,12 +461,6 @@ export default {
       if(url.pathname==="/api/admin/sync/drain"&&request.method==="POST") {
         await authorizedOwner(request,env);
         return response(await drainOutbox(env),200,origin);
-      }
-      if(url.pathname.startsWith('/api/admin/qa-payment-phases/')){
-        await authorizedOwner(request,env);
-        if(url.pathname.endsWith('/start')&&request.method==='POST')return response(await qaPaymentStart(env),200,origin);
-        if(url.pathname.endsWith('/drain')&&request.method==='POST')return response(await qaPaymentDrain(env),200,origin);
-        if(url.pathname.endsWith('/status')&&request.method==='GET')return response(await qaPaymentStatus(env),200,origin);
       }
       if(url.pathname==="/api/admin/payment-reports"&&request.method==="GET") {
         await authorizedOwner(request,env);
