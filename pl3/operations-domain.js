@@ -1,3 +1,4 @@
+import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{applyService}from './operations-services.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
@@ -42,6 +43,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
  switch(c.type){
+ case 'legacy_reconcile':{result=completeLegacyOperations(s,c,{now,id});break;}
  case 'catalog_restore_approved':{
   must(c.confirmed===true,'請確認沿用舊站已公開核准的內容');let published=0;const blocked=[];
   for(const p of s.products||[]){const x=p.source_snapshot;if(x?.published!==true||x.displayMode!=='formal')continue;

@@ -19,7 +19,7 @@ export async function loadOperations(env){
 export async function operationsView(env){
  const {version,state}=await loadOperations(env);const mail=await env.DB.prepare('SELECT notice_id,status,gmail_message_id,gmail_thread_id,error_code,sent_at FROM pl_ops_mail ORDER BY updated_at DESC LIMIT 500').all();
  for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void')Object.assign(n,{status:m.status,gmail_message_id:m.gmail_message_id,gmail_thread_id:m.gmail_thread_id,error_code:m.error_code,sent_at:m.sent_at});}
- return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:operationsMirrorEnabled(env)?'enabled':'not_connected',source_mode:'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
+ return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{production_cutover:env.PL3_PRODUCTION_CUTOVER==='true',gmail_oauth_status:env.PL3_GMAIL_OAUTH_STATUS||'unverified',mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:operationsMirrorEnabled(env)?'enabled':'not_connected',source_mode:'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
 }
 export async function commit(env,current,next,{key,type,requestHash,actor,result,notice}){
  const changes=[];
