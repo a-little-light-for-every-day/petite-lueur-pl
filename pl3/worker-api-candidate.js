@@ -17,6 +17,7 @@ import { readLegacyArchive } from "./legacy-source-store.js";
 import { mapLegacyPayments } from "./legacy-payment-mapper.js";
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
 import { drainOutbox } from "./sync-outbox.js";
+import {qaPaymentStart,qaPaymentDrain,qaPaymentStatus} from './qa-payment-phases.js';
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
 import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
@@ -449,6 +450,12 @@ export default {
       if(url.pathname==="/api/admin/sync/drain"&&request.method==="POST") {
         await authorizedOwner(request,env);
         return response(await drainOutbox(env),200,origin);
+      }
+      if(url.pathname.startsWith('/api/admin/qa-payment-phases/')){
+        await authorizedOwner(request,env);
+        if(url.pathname.endsWith('/start')&&request.method==='POST')return response(await qaPaymentStart(env),200,origin);
+        if(url.pathname.endsWith('/drain')&&request.method==='POST')return response(await qaPaymentDrain(env),200,origin);
+        if(url.pathname.endsWith('/status')&&request.method==='GET')return response(await qaPaymentStatus(env),200,origin);
       }
       if(url.pathname==="/api/admin/payment-reports"&&request.method==="GET") {
         await authorizedOwner(request,env);
