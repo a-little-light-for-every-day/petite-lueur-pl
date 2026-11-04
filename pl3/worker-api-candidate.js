@@ -11,6 +11,8 @@ import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import operationsHtml from "./operations-html.js";
 import operationsBundle from "./operations-bundle.js";
+import homepageHtml from "./homepage-html.js";
+import privacyHtml from "./privacy-html.js";
 import { readLegacyArchive } from "./legacy-source-store.js";
 import { mapLegacyPayments } from "./legacy-payment-mapper.js";
 import { reviewPayment, advanceFulfillment } from "./admin-operations.js";
@@ -242,6 +244,8 @@ export default {
     }
     try {
       if(!env.DB)fail("Database binding missing",503);
+      if(request.method==="GET"&&["/","/index.html"].includes(url.pathname))return new Response(homepageHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"}});
+      if(request.method==="GET"&&["/privacy","/privacy.html"].includes(url.pathname))return new Response(privacyHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
       if(url.pathname==="/admin-test"&&request.method==="GET") {
         return new Response(adminHtml,{status:200,headers:{
           "Content-Type":"text/html; charset=utf-8",
