@@ -3522,7 +3522,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     let feeNote='';
     if(hasSelection&&!hasJapan)feeNote='此單為飾品選物：不計日本境內與國際運費，後續僅依實際情況收取台灣配送／包材費。';
     else if(hasSelection&&hasJapan)feeNote='此單同時含飾品選物與日本代購：飾品選物不計日本境內／國際運費；日本代購的日本境內運費依同筆官方訂單實際購入商品件數分攤（含 PL 自購），國際運費／稅費依份數分攤。';
-    else feeNote='日本境內運費依同一筆官方訂單實際購入商品件數分攤（含 PL 自購）；國際運費與可能稅費依商品份數分攤；包材與台灣配送依實際費用於二補通知。';
+    else feeNote='海外境內運費依同一筆官方訂單實際購入商品件數分攤（含 PL 自購）；國際運費與可能稅費依當團規則及實際帳單分攤；包材與台灣配送於二補通知。';
     $('cartSummary').innerHTML=`<div class="sumrow"><span>商品件數</span><b>${count} 件</b></div><div class="sumrow total"><span></span><b>${money(subtotal)}</b></div><div class="meta">${onsite?'此單含日本現地代購：送出後以主購現場實際購得為準；購得後再依流程通知付款。':'此步驟是送出訂購申請，主購確認商品與金額後才會付款通知；付款核對完成才正式成立。'}<br>${feeNote}</div>${subtotal>orderMaxTwd?`<div class="statusMsg bad">已超過單筆上限，請拆單。</div>`:''}`;
   }
   function removeLine(i){cart.splice(i,1);saveCart();renderCart();renderProducts()}
