@@ -14,7 +14,7 @@ Actual live verification:
 - Live D1 isolated restore verification passed: 52 orders, 184 products, 0 attachments; source version 17 preserved, delivery replay disabled. No active business data was overwritten.
 - Authenticated service intake, owner versioned quotations, customer acceptance into actual first-invoice orders, payment-service completion evidence and physical forwarding logistics are implemented. Services and fees cannot enter physical purchase/shipment records; forwarding uses actual warehouse intake without fabricated purchases.
 
-Automated validation: 107 tests passing before release; includes actual SQLite transactions, CAS, replay, payment reconciliation, immutable approval, unknown-mail outcomes, COD split shipments, checkout pricing and identity, closed-group retries, official-image publication guards, exact catalog matching and Ensky hold preservation.
+Automated validation: 112 tests passing before release; includes actual SQLite transactions, CAS, replay, payment reconciliation, immutable approval, unknown-mail outcomes, COD split shipments, checkout pricing and identity, closed-group retries, official-image publication guards, exact catalog matching and Ensky hold preservation.
 
 Remaining cutover requirements:
 - Resolve source catalog differences and verify currently available public offerings. Imported drafts remain private; expired groups remain closed.
@@ -25,3 +25,13 @@ Remaining cutover requirements:
 - Physical mobile acceptance remains unverified. Full backup restoration was exercised on the live D1 database in isolated temporary tables and passed.
 
 Source identity and financial history are preserved. Ensky's 2026-11-04 deferral never auto-releases on the date; explicit evidence of restored card capacity is required. No bank transfer, purchase, customer notification, or production redirect was performed by the agent.
+
+## Continuation verification (2026-11-04 Asia/Taipei)
+
+- Official Google owner sign-in verified. Original isolated Apps Script project deployed receiver versions 5 and 6 on its unchanged existing URL; permissions and secret values were not changed.
+- Live owner diagnostics: original Sheets workbook access succeeds. Both original Notion order and inquiry data sources return access denied for the existing connection named `PL3 FORMAL STAGING｜獨立訂單同步（僅測試）`. No integration permissions have been expanded.
+- Before the approval review block, the dashboard confirmed 8 delivered Sheets records and 8 failed Notion deliveries; 88 deliveries remained pending. No Notion delivery was confirmed.
+- Automatic approval review rejected the subsequent bulk write because the initial request restricted external data changes. Operational sync was then explicitly paused through PL3_OPS_SYNC_ENABLED=false; live owner UI confirmed disabled, 8 delivered, 8 retry, 88 pending, no in-flight deliveries. Do not resume bulk external delivery or expand Notion access without explicit approval for these actions.
+- A public, isolated /storefront-preview preserves the latest main storefront and six service cards. Current main index was fetched at blob f8676e80433b6a7ca094c3df5910ba040a5413bb before preparing changes. It has not been published to the production GitHub Pages branch. New public catalog excludes closed and unapproved records; checkout transfers only identifiers/quantities and revalidates prices and limits. Service intake transfers no name, Email, address, payment proof or credentials.
+- Owner-only mail acceptance draft creation is implemented, with a fixed official-owner recipient and no associated customer orders/invoices. No test or customer mail has been approved or sent.
+- 112 local automated tests pass. Physical mobile acceptance, actual approved mail delivery, Notion live synchronization and production cutover remain incomplete.
