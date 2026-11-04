@@ -3,9 +3,32 @@
   "name": "pl3-qa-e2e",
   "main": "qa-e2e-worker.js",
   "compatibility_date": "2026-10-01",
-  "d1_databases": [{"binding":"DB","database_name":"pl3-qa-e2e","database_id":"f05d466b-7bfd-4b42-a346-49cb374398fd"}],
-  "vars": {"PL3_ADMIN_EMAIL":"petitelueur.pl@gmail.com","PL3_OPS_MAIL_ENABLED":"false","PL3_OPS_SYNC_ENABLED":"false","PL3_FORMAL_SYNC_ENABLED":"false","PL3_PRODUCTION_CUTOVER":"false","PL3_SYNC_ALLOW_QA":"false","PL3_QA_ISOLATED":"true"},
-  "triggers": {"crons":[]},
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pl3-qa-e2e",
+      "database_id": "f05d466b-7bfd-4b42-a346-49cb374398fd"
+    }
+  ],
+  "vars": {
+    "PL3_ADMIN_EMAIL": "petitelueur.pl@gmail.com",
+    "PL3_OPS_MAIL_ENABLED": "false",
+    "PL3_OPS_SYNC_ENABLED": "false",
+    "PL3_FORMAL_SYNC_ENABLED": "false",
+    "PL3_PRODUCTION_CUTOVER": "false",
+    "PL3_SYNC_ALLOW_QA": "false",
+    "PL3_QA_ISOLATED": "true",
+    "PL3_QA_SYNC_ENABLED": "true",
+    "PL3_QA_SYNC_RECEIVER": "https://script.google.com/macros/s/AKfycbzd6MP0MveFRr0FtOsq5I81Om6y8jJuWuCLFlNYX_j9trPwrTAWSO9wkpUFdtozH7Um9w/exec"
+  },
+  "triggers": {
+    "crons": []
+  },
   "preview_urls": false,
-  "observability": {"logs":{"enabled":true}}
+  "observability": {
+    "logs": {
+      "enabled": true
+    }
+  },
+  "keep_vars": true
 }
