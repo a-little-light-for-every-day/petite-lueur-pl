@@ -5,3 +5,6 @@ pl3/operations-bundle.js
 pl3/operations-html.js
 
 pl3/operations-receiver-source.js
+
+pl3/storefront-preview-html.js
+pl3/storefront-cutover-source.js

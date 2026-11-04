@@ -1,3 +1,6 @@
+import{legacyOperationsCatalog}from './storefront-handoff.js';
+import storefrontPreview from './storefront-preview-html.js';
+import storefrontCutover from './storefront-cutover-source.js';
 import operationsReceiverSource from './operations-receiver-source.js';
 import{operationsMirrorStatus,drainOperationsMirror}from './operations-mirror.js';
 import{exportOperationsBackup,restoreOperationsBackup,verifyOperationsBackup}from './operations-backup.js';
@@ -244,6 +247,9 @@ export default {
           "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         }});
       }
+      if(url.pathname==='/storefront-preview'&&request.method==='GET')return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
+      if(url.pathname==='/storefront-cutover.js'&&request.method==='GET')return new Response(storefrontCutover,{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+      if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog((await loadOperations(env)).state),200,origin);
       if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'"}});
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
       if(url.pathname==="/api/operations/service-requests"&&request.method==="GET"){const email=await authorizedEmail(request,env);return response({ok:true,requests:customerServiceView((await loadOperations(env)).state,email)},200,origin);}
