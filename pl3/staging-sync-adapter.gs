@@ -34,7 +34,7 @@ function doPost(e) {
       const sheet = pl3QaSheet_(props.getProperty('PL3_QA_SPREADSHEET_ID'));
       const eventId = safe.event_id;
       // Every event uses the SAME event ID for both destinations.
-      const isInSheet = pl3SheetHasEvent_(sheet, eventId);
+      const isInSheet = pl3SheetHasEvent_(sheet, safe);
       if (!isInSheet) {
         sheet.appendRow([eventId,safe.event_type,safe.entity_id,safe.group_id,
           safe.order_id,safe.change, new Date(), 'PL3 QA ONLY']);
@@ -76,15 +76,27 @@ function pl3Validate_(event) {
   if (!/^[a-zA-Z0-9:_-]{1,200}$/.test(id) ||
       !/^[a-zA-Z0-9_-]{1,128}$/.test(entity) ||
       !group.startsWith(PL3_QA_PREFIX) || group.length>128 ||
-      !['order.created','payment.reviewed','fulfillment.advanced'].includes(kind)) {
+      !['order.created','payment.reviewed','fulfillment.advanced','payment.phase.qa'].includes(kind)) {
     throw new Error('QA allowlist only');
   }
   const p=event.payload || {};
   const orderId=String(p.order_id||entity).slice(0,128);
   if (orderId!==entity) throw new Error('Order id mismatch');
-  const change=kind==='payment.reviewed' ?
+  let change=kind==='payment.reviewed' ?
     String(p.decision||'').slice(0,40) :
     kind==='fulfillment.advanced' ? String(p.to||'').slice(0,40) : 'created';
+  if(kind==='payment.phase.qa') {
+    const stage=String(p.stage||'');
+    if(!['first_invoiced','first_partial','second_invoiced','second_settled'].includes(stage))
+      throw new Error('Invalid QA payment stage');
+    const fields=['invoice_twd','received_twd','outstanding_twd','carry_twd'];
+    if(fields.some(f=>!Number.isSafeInteger(p[f])||p[f]<0||p[f]>22000))
+      throw new Error('Invalid QA payment amount');
+    if(p.received_twd+p.outstanding_twd!==p.invoice_twd)
+      throw new Error('QA payment balance mismatch');
+    change=[stage,'invoice='+p.invoice_twd,'received='+p.received_twd,
+      'outstanding='+p.outstanding_twd,'carry='+p.carry_twd].join(';');
+  }
   return {event_id:id,entity_id:entity,group_id:group,event_type:kind,
     order_id:orderId,change};
 }
@@ -100,12 +112,18 @@ function pl3QaSheet_(id) {
   }
   return sheet;
 }
-function pl3SheetHasEvent_(sheet,id) {
+function pl3SheetHasEvent_(sheet,event) {
   const end=sheet.getLastRow();
   if(end<2) return false;
   const found=sheet.getRange(2,1,end-1,1)
-    .createTextFinder(id).matchEntireCell(true).findNext();
-  return !!found;
+    .createTextFinder(event.event_id).matchEntireCell(true).findNext();
+  if(!found) return false;
+  const row=sheet.getRange(found.getRow(),1,1,6).getValues()[0];
+  const expected=[event.event_id,event.event_type,event.entity_id,event.group_id,
+    event.order_id,event.change];
+  if(expected.some((v,i)=>String(row[i])!==String(v)))
+    throw new Error('QA duplicate event content differs');
+  return true;
 }
 function pl3Notion_(token,path,method,body) {
   const response=UrlFetchApp.fetch(PL3_NOTION_API+path,{
@@ -134,7 +152,15 @@ function pl3EnsureNotionPage_(props,event) {
     const list=pl3Notion_(token,'/blocks/'+parent+'/children'+q,'get');
     for(const block of list.results||[]) {
       if(block.type==='child_page' && block.child_page &&
-          block.child_page.title===title) return;
+          block.child_page.title===title) {
+        const children=pl3Notion_(token,'/blocks/'+block.id+'/children?page_size=10','get');
+        const expected=[event.event_type,event.order_id,event.group_id,event.change].join(' | ');
+        const actual=(children.results||[]).filter(x=>x.type==='paragraph')
+          .flatMap(x=>(x.paragraph.rich_text||[]).map(t=>t.plain_text||t.text&&t.text.content||''))
+          .join('');
+        if(actual!==expected) throw new Error('QA Notion duplicate content differs');
+        return;
+      }
     }
     searched+=(list.results||[]).length;
     if(searched>=1000) throw new Error('QA page capacity reached');
