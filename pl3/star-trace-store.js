@@ -27,6 +27,10 @@ export async function readStarTrace(env){
     official_orders:officialGiftCount(document.official_orders)
   }};
 }
+export async function readStarTraceAudit(env){
+ const rows=(await env.DB.prepare('SELECT event_id,group_id,actor,operation,before_version,after_version,details_json,created_at FROM pl_star_trace_events WHERE group_id=? ORDER BY after_version ASC').bind(STAR_TRACE_GROUP).all()).results||[];
+ return rows.map(({details_json,...r})=>({...r,details:JSON.parse(details_json)}));
+}
 // Owner-only API. Every command is an optimistic, audited D1 transaction.
 export async function commandStarTrace(env,actor,input){
   if(!input||typeof input!=='object'||!/^[\w:-]{12,160}$/.test(input.key||''))throw err('缺少唯一操作識別碼');

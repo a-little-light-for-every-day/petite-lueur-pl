@@ -1,15 +1,35 @@
 import{loadOperations}from'./operations-store.js';import{balance,credit,operatingStatus}from'./operations-domain.js';
+import {benefitCampaignProjection} from './benefit-sync-projection.js';
+import {readStarTrace,readStarTraceAudit} from './star-trace-store.js';
+import {eligibility,officialGiftCount} from './plave-star-trace.js';
 export const mirrorSchema=`CREATE TABLE IF NOT EXISTS pl_ops_sync_deliveries(record_id TEXT NOT NULL,destination TEXT NOT NULL,projection_hash TEXT NOT NULL,delivered_hash TEXT,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,lease_until TEXT,next_retry_at TEXT,remote_id TEXT,remote_revision TEXT,error_code TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(record_id,destination));`;
 const canonical=x=>JSON.stringify(x,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
 const sha=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 const destinations=['sheets','notion'];
 export const operationsMirrorEnabled=env=>env.PL3_OPS_SYNC_ENABLED==='true'&&!!env.PL3_FORMAL_SYNC_SECRET&&!!env.PL3_FORMAL_SHEETS_WEBHOOK_URL;
 const sourceId=o=>String(o.source_url||'').replace(/-/g,'').match(/[a-f0-9]{32}/i)?.[0]||null;
-export function operationsMirrorDocuments(s){
- const docs=s.orders.map(o=>{const invoices=s.invoices.filter(b=>b.order_id===o.id).map(b=>({...b,allocated_twd:s.allocations.filter(a=>a.invoice_id===b.id&&!a.reversed_at).reduce((n,a)=>n+a.amount_twd,0),outstanding_twd:balance(s,b)})),ids=invoices.map(b=>b.id),allocations=s.allocations.filter(a=>ids.includes(a.invoice_id)),receiptIds=[...new Set(allocations.map(a=>a.receipt_id))];return {record_id:o.id,kind:'order',source_id:sourceId(o),source_revision:o.source_revision||null,document:{order:o,status:operatingStatus(s,o),invoices,allocations,receipts:s.receipts.filter(r=>receiptIds.includes(r.id)).map(r=>({...r,unallocated_credit_twd:credit(s,r)})),refunds:s.refunds.filter(r=>receiptIds.includes(r.receipt_id)),notices:s.notices.filter(n=>n.order_ids.includes(o.id)).map(({id,kind,status,version,gmail_message_id,gmail_thread_id,sent_at,error_code,invoice_ids})=>({id,kind,status,version,gmail_message_id,gmail_thread_id,sent_at,error_code,invoice_ids})),purchases:s.purchases.filter(p=>p.items.some(i=>i.order_id===o.id)),shipments:s.shipments.filter(p=>p.items.some(i=>i.order_id===o.id))}};});
- for(const r of s.service_requests||[])docs.push({record_id:'request:'+r.id,kind:'request',source_id:sourceId(r),source_revision:r.source_revision||null,document:{request:r}});return docs;
+export function operationsMirrorDocuments(s,starTrace=null,starTraceAudit=[],{includeCampaigns=true}={}){
+ const docs=s.orders.map(o=>{const invoices=s.invoices.filter(b=>b.order_id===o.id).map(b=>({...b,allocated_twd:s.allocations.filter(a=>a.invoice_id===b.id&&!a.reversed_at).reduce((n,a)=>n+a.amount_twd,0),outstanding_twd:balance(s,b)})),ids=invoices.map(b=>b.id),allocations=s.allocations.filter(a=>ids.includes(a.invoice_id)),receiptIds=[...new Set(allocations.map(a=>a.receipt_id))];return {record_id:o.id,kind:'order',source_id:sourceId(o),source_revision:o.source_revision||null,document:{order:{...o,...((s.config.benefit_campaigns||[]).some(p=>p.entries.some(e=>e.order_id===o.id))?{benefit_campaigns:(s.config.benefit_campaigns||[]).filter(p=>p.entries.some(e=>e.order_id===o.id)).map(p=>({id:p.id,title:p.title,threshold_krw:50000,entries:p.entries.filter(e=>e.order_id===o.id),preference:p.preferences[o.email?.trim().toLowerCase()||'order:'+o.id]||null,tickets:(p.tickets||[]).filter(t=>t.order_ids.includes(o.id)),drawn_at:p.drawn_at||null}))}:{})},status:operatingStatus(s,o),invoices,allocations,receipts:s.receipts.filter(r=>receiptIds.includes(r.id)).map(r=>({...r,unallocated_credit_twd:credit(s,r)})),refunds:s.refunds.filter(r=>receiptIds.includes(r.receipt_id)),notices:s.notices.filter(n=>n.order_ids.includes(o.id)).map(({id,kind,status,version,gmail_message_id,gmail_thread_id,sent_at,error_code,invoice_ids})=>({id,kind,status,version,gmail_message_id,gmail_thread_id,sent_at,error_code,invoice_ids})),purchases:s.purchases.filter(p=>p.items.some(i=>i.order_id===o.id)),shipments:s.shipments.filter(p=>p.items.some(i=>i.order_id===o.id))}};});
+ for(const r of s.service_requests||[])docs.push({record_id:'request:'+r.id,kind:'request',source_id:sourceId(r),source_revision:r.source_revision||null,document:{request:r}});
+ for(const campaign of includeCampaigns?s.config.benefit_campaigns||[]:[]){
+  const projection=benefitCampaignProjection(s,campaign);
+  docs.push({record_id:'benefit:'+projection.group_id,kind:'benefit',source_id:null,source_revision:null,document:{star_trace:projection}});
+ }
+ if(starTrace?.group_id){
+  if(docs.some(d=>d.record_id==='benefit:'+starTrace.group_id))throw Error('STAR_TRACE_GROUP_COLLISION');
+  const customers=starTrace.customers||[];
+  docs.push({record_id:'benefit:'+starTrace.group_id,kind:'benefit',source_id:null,source_revision:null,document:{star_trace:{
+   group_id:starTrace.group_id,customers,
+   qualifications:customers.map(c=>({customer_order_id:c.customer_order_id,...eligibility(c.lines||[])})),
+   official_orders:officialGiftCount(starTrace.official_orders||[]),
+   received_cards:starTrace.cards||[],draw_order:starTrace.draw_order||[],
+   draw_evidence:starTrace.draw_evidence||null,allocation:starTrace.allocation||null,
+   notes:starTrace.notes||[],audit_events:starTraceAudit
+  }}});
+ }
+ return docs;
 }
-async function documents(env){const {state,version}=await loadOperations(env);const docs=operationsMirrorDocuments(state);for(const d of docs)d.hash=await sha(canonical(d));return {docs,version};}
+async function documents(env){const {state,version}=await loadOperations(env);let starTrace=null,starTraceAudit=[];if(env.PL3_STAR_TRACE_SYNC_ENABLED==='true'){starTrace=(await readStarTrace(env)).document;starTraceAudit=await readStarTraceAudit(env);}const docs=operationsMirrorDocuments(state,starTrace,starTraceAudit,{includeCampaigns:env.PL3_BENEFIT_GROUP_SYNC_ENABLED==='true'});for(const d of docs)d.hash=await sha(canonical(d));return {docs,version};}
 export async function operationsMirrorStatus(env){const {docs,version}=await documents(env);const rows=(await env.DB.prepare('SELECT * FROM pl_ops_sync_deliveries').all()).results||[];const stats={pending:0,delivered:0,conflict:0,retry:0,processing:0,blocked:0};for(const d of docs)for(const dst of destinations){const row=rows.find(r=>r.record_id===d.record_id&&r.destination===dst);if(row?.status==='blocked')stats.blocked++;else if(row?.status==='conflict')stats.conflict++;else if(row?.delivered_hash===d.hash)stats.delivered++;else if(row?.status==='processing'&&row.lease_until>new Date().toISOString())stats.processing++;else if(row?.status==='retry')stats.retry++;else stats.pending++;}return{ok:true,enabled:operationsMirrorEnabled(env),protocol:'pl3-operations-v1',source_version:version,records:docs.length,...stats,failures:rows.filter(r=>['retry','blocked'].includes(r.status)).map(r=>({record_id:r.record_id,destination:r.destination,status:r.status,error_code:r.error_code})),conflicts:rows.filter(r=>r.status==='conflict').map(r=>({record_id:r.record_id,destination:r.destination,error_code:r.error_code,remote_id:r.remote_id}))};}
 async function sign(secret,body){const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(body)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function drainOperationsMirror(env,{limit=2,transport=fetch}={}){

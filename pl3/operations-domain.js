@@ -1,3 +1,4 @@
+import{applyBenefit}from './operations-benefits.js';
 import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{applyService}from './operations-services.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
@@ -42,6 +43,7 @@ function allocate(s,r,entries){
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
+ if(c.type.startsWith('benefit_'))return applyBenefit(s,c,{id,now});
  switch(c.type){
  case 'legacy_reconcile':{result=completeLegacyOperations(s,c,{now,id});break;}
  case 'catalog_restore_approved':{
@@ -154,6 +156,19 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'receipt_confirm':{
   must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');must(!s.receipts.some(r=>r.transaction_id===text(c.transaction_id)),'此交易已入帳，請勿重複',409);
   const r={id,transaction_id:text(c.transaction_id),customer_email:email(c.customer_email)?c.customer_email.trim().toLowerCase():null,customer_key:email(c.customer_email)?c.customer_email.trim().toLowerCase():'order:'+codOrder.id,customer_order_id:codOrder?.id||null,amount_twd:c.amount_twd,kind:c.kind,evidence:text(c.evidence,2000),received_at:c.received_at||now};s.receipts.push(r);allocate(s,r,c.allocations);changed.push(...c.allocations.map(a=>invoice(s,a.invoice_id).order_id));if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.customer_email===r.customer_email,'付款回報歸屬不符');report.status='confirmed';report.receipt_id=r.id;}result={receipt_id:r.id,credit_twd:credit(s,r)};break;
+ }
+ case 'receipt_date_correct':{
+  const r=s.receipts.find(x=>x.id===c.receipt_id);
+  must(r&&c.confirmed===true&&text(c.evidence),'請確認原收款與日期更正證據');
+  must(r.received_at===c.expected_received_at,'收款日期已變動，請重新整理再核對',409);
+  const value=text(c.received_at,10);
+  must(/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value,'請填有效實際入帳日期 YYYY-MM-DD');
+  must(value!==r.received_at,'日期未變更');
+  r.date_corrections=r.date_corrections||[];
+  r.date_corrections.push({id,at:now,previous_received_at:r.received_at,received_at:value,evidence:text(c.evidence,2000)});
+  r.received_at=value;
+  changed.push(...s.allocations.filter(a=>a.receipt_id===r.id&&!a.reversed_at).map(a=>invoice(s,a.invoice_id).order_id));
+  result={receipt_id:r.id,received_at:value};break;
  }
  case 'credit_allocate':{const r=s.receipts.find(x=>x.id===c.receipt_id);must(r&&c.confirmed===true,'請確認抵用來源');allocate(s,r,c.allocations);changed.push(...c.allocations.map(a=>invoice(s,a.invoice_id).order_id));break;}
  case 'carry_to_second':{
