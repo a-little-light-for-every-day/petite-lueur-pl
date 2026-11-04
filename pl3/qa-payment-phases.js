@@ -5,6 +5,7 @@ const GROUP='PL3-QA-PAYMENTS';
 const STEPS=[
   ['first_invoiced',890,0,890,0],
   ['first_partial',890,800,90,90],
+  ['first_carry_applied',800,800,0,90],
   ['second_invoiced',228,0,228,90],
   ['second_settled',228,228,0,90]
 ];
@@ -48,7 +49,7 @@ export async function qaPaymentStatus(env){
 export async function qaPaymentDrain(env){
   const url=configured(env);
   await env.DB.prepare(schema).run();
-  const pending=await env.DB.prepare("SELECT id,payload_json FROM pl3_qa_payment_events WHERE status!='delivered' ORDER BY id LIMIT 4").all();
+  const pending=await env.DB.prepare("SELECT id,payload_json FROM pl3_qa_payment_events WHERE status!='delivered' ORDER BY id LIMIT 5").all();
   const outcomes=[];
   for(const row of pending.results||[]){
     let status='retry',error='INVALID_ACK';
