@@ -40,9 +40,11 @@ function makeDB() {
           return p?.group_id === this.args[1] ? p : null;
         }
         if (sql.includes("FROM orders")) {
+          if(sql.includes("group_id=?"))return state.orders.find(o=>o.id===this.args[0]&&o.group_id===this.args[1]&&o.customer_email===this.args[2]&&o.customer_name===this.args[3]&&o.payment_status==="unpaid")??null;
           return state.orders.find(o => o.id === this.args[0] &&
             o.customer_email === this.args[1]) ?? null;
         }
+        if (sql.includes("FROM payment_reports")) return state.reports.find(r=>r.order_id===this.args[0])??null;
         throw new Error("Unexpected first SQL: " + sql);
       },
       async all() {
@@ -122,6 +124,27 @@ test("checkout inserts one order, items, fulfillment, and sync event; retry is i
     payload({ items: [{ product_id: "SKU-TEST", quantity: 3 }] }));
   assert.equal(changed.status, 409);
   assert.equal(db.state.orders.length, 1);
+});
+
+test("private QA checkout is owner-only, allows exact draft cohort, and replays without duplicate or financial settlement", async()=>{
+ const db=makeDB(),env={DB:db,SESSION_SECRET:SECRET,PL3_ADMIN_EMAIL:email,PL3_FORMAL_ALLOWED_GROUP_ID:"PL3-FORMAL-REHEARSAL-01",PL3_FORMAL_SYNC_ENABLED:"true"};
+ db.state.groups.set("PL3-FORMAL-REHEARSAL-01",{id:"PL3-FORMAL-REHEARSAL-01",status:"draft",published:0,order_deadline:null});
+ db.state.products.set("PL3-TEST-PRODUCT-20261101-01",{id:"PL3-TEST-PRODUCT-20261101-01",group_id:"PL3-FORMAL-REHEARSAL-01",name:"PL3 假商品",variant:"測試",price_twd:100,quantity_limit:1,status:"available"});
+ const route="/api/admin/qa/checkout",key="qa_checkout_unique_key_1";
+ assert.equal((await request(env,route,"POST",{idempotency_key:key},authFor("not-owner@example.com"))).status,403);
+ assert.equal((await request(env,"/api/orders","POST",{...payload(),group_id:"PL3-FORMAL-REHEARSAL-01",items:[{product_id:"PL3-TEST-PRODUCT-20261101-01",quantity:1}]})).status,409);
+ const created=await request(env,route,"POST",{idempotency_key:key});
+ assert.equal(created.status,201);assert.equal(created.data.total_twd,100);
+ const repeat=await request(env,route,"POST",{idempotency_key:key});
+ assert.equal(repeat.data.replayed,true);assert.equal(repeat.data.order_id,created.data.order_id);
+ assert.equal(db.state.orders.length,1);assert.equal(db.state.outbox.length,1);
+ const reported=await request(env,"/api/admin/qa/payment-report","POST",{order_id:created.data.order_id});
+ assert.equal(reported.status,201);assert.equal(reported.data.status,"pending_review");
+ const again=await request(env,"/api/admin/qa/payment-report","POST",{order_id:created.data.order_id});
+ assert.equal(again.data.replayed,true);assert.equal(db.state.reports.length,1);
+ assert.equal(db.state.orders[0].payment_status,"unpaid");
+ const disallowed={...env,PL3_FORMAL_ALLOWED_GROUP_ID:"other"};
+ assert.equal((await request(disallowed,route,"POST",{idempotency_key:"qa_checkout_unique_key_2"})).status,409);
 });
 
 test("checkout rejects unpublished groups, closed groups, and invalid quantities", async () => {
