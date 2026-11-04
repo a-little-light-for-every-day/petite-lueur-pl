@@ -1,4 +1,5 @@
 // QA-only STAR TRACE D1 -> Apps Script -> Sheets/Notion verification.
+// Loaded only by pl3-qa-e2e Worker; QA branch watched separately by Cloudflare.
 // This module must never be loaded by the public production worker.
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import {isolatedQaGate,qaHmac} from './qa-e2e-sync.js';
