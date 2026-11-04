@@ -1,4 +1,5 @@
 import {qaTriggerAuthorized,syncQaLedger} from './qa-e2e-sync.js';
+import {syncQaStarTrace} from './qa-star-trace-sync.js';
 import productionWorker from './worker-api-candidate.js';
 import {installOperations,loadOperations,executeOperation} from './operations-store.js';
 import {balance} from './operations-domain.js';
@@ -64,6 +65,11 @@ export default {
    const raw=await request.text();
    if(raw.length>2048||!await qaTriggerAuthorized(raw,env))return reply({ok:false,error:'QA signed authorization required'},403);
    try{return reply(await syncQaLedger(env))}catch{return reply({ok:false,error:'QA sync incomplete; production data untouched'},409)}
+  }
+  if(u.pathname==='/qa/star-trace/run'){
+   if(request.method!=='POST')return reply({ok:false,error:'Method not allowed'},405);
+   if(!await authenticated(request,env))return reply({ok:false,error:'QA authorization required'},403);
+   try{return reply(await syncQaStarTrace(env))}catch(e){console.error('QA STAR TRACE sync failed',e);return reply({ok:false,error:String(e.message||e)},409)}
   }
   if(u.pathname==='/qa/run'){
    if(request.method!=='POST')return reply({ok:false,error:'Method not allowed'},405);
