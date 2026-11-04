@@ -9,6 +9,8 @@ import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} fr
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
+import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
+import starTraceHtml from './star-trace-html.js';
 import operationsHtml from "./operations-html.js";
 import operationsBundle from "./operations-bundle.js";
 import homepageHtml from "./homepage-html.js";
@@ -333,6 +335,16 @@ export default {
         if(url.pathname==="/api/admin/ops/mail-health"&&request.method==="POST"){
           try{await gmailAccess(env);return response({ok:true,oauth_exchange:'healthy',send_permission:'not_tested',long_term_authorization:'not_verified'},200,origin);}catch(e){return response({ok:false,error:e.code||'GMAIL_UNAVAILABLE'},503,origin);}
         }
+      }
+      if(url.pathname.startsWith('/api/admin/star-trace')){
+        const actor=await authorizedOwner(request,env);
+        if(url.pathname==='/api/admin/star-trace'&&request.method==='GET')return response(await readStarTrace(env),200,origin);
+        if(url.pathname==='/api/admin/star-trace/install'&&request.method==='POST')return response(await installStarTrace(env),200,origin);
+        if(url.pathname==='/api/admin/star-trace/command'&&request.method==='POST')return response(await commandStarTrace(env,actor,await jsonBody(request)),200,origin);
+      }
+      if(url.pathname==='/admin-star-trace'&&request.method==='GET'){
+        await authorizedOwner(request,env);
+        return new Response(starTraceHtml,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'}});
       }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
