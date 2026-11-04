@@ -1,8 +1,9 @@
 export const PL3_ORIGIN='https://pl3-staging-api.petitelueur-pl.workers.dev';
 export function productionStorefront(source,{preview=false}={}){
  const entry='<script id="plStoreMainCode"',render='function renderEmbeddedStoreData(){';
- if(source.includes('data-pl3-cutover')||source.split(entry).length!==2||source.split(render).length!==2)throw Error('Storefront changed; review the exact entry points before cutover');
  const gate='<script data-pl3-cutover="1">window.PL3_OPERATING_STOREFRONT=true;window.PL2_READONLY_RPC=window.plGithubRpc;window.plGithubRpc=()=>Promise.reject(Error("3.0連線暫時不可用，請稍後重試；尚未送出訂單。"));</script>\n<script src="'+PL3_ORIGIN+'/storefront-cutover.js"></script>\n';
+ if(source.includes('data-pl3-cutover')){if(source.split('data-pl3-cutover="1"').length!==2||!source.includes(gate+entry)||!source.includes(render+'if(window.PL3_OPERATING_STOREFRONT)return false;'))throw Error('Storefront changed; review existing cutover');return preview?source.replace(/(src|href)=(["'])(assets\/[^"']+)/g,'$1=$2https://a-little-light-for-every-day.github.io/petite-lueur-pl/$3'):source;}
+ if(source.split(entry).length!==2||source.split(render).length!==2)throw Error('Storefront changed; review the exact entry points before cutover');
  let html=source.replace(render,render+'if(window.PL3_OPERATING_STOREFRONT)return false;').replace(entry,gate+entry);
  if(preview)html=html.replace(/(src|href)=(["'])(assets\/[^"']+)/g,'$1=$2https://a-little-light-for-every-day.github.io/petite-lueur-pl/$3');
  return html.replace('</body>','<p style="text-align:center;padding:16px"><a href="https://a-little-light-for-every-day.github.io/petite-lueur-pl/privacy.html">資料使用與隱私說明</a></p>\n</body>');
