@@ -119,10 +119,31 @@ if ((!pl3Admin && !adminHtml.includes('PL_GAS_ADMIN_CALL')) || /BRIDGE_SECRET|NO
 }
 fs.mkdirSync('dist/admin', { recursive: true });
 fs.writeFileSync('dist/admin/index.html', adminHtml);
-// LINE and the storefront now consume the same approved publication dataset.
+// The existing LINE webhook reads this file. Publish only the live PL3 catalog.
+const lineCatalogUrl = 'https://pl3-staging-api.petitelueur-pl.workers.dev/api/operations/legacy-catalog';
+const lineResponse = await fetch(lineCatalogUrl, { signal: AbortSignal.timeout(20000) });
+if (!lineResponse.ok) throw new Error('PL3 LINE catalog unavailable: HTTP ' + lineResponse.status);
+const lineCatalog = await lineResponse.json();
+if (lineCatalog.ok !== true || lineCatalog.sourceMode !== 'PL3-operating-catalog' ||
+    !Array.isArray(lineCatalog.products)) throw new Error('Invalid PL3 LINE catalog');
+const taipeiClock = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+const lineProducts = lineCatalog.products
+  .filter(p => p.published === true && p.displayMode === 'formal' &&
+    p.soldOut !== true && Date.parse(p.preorderDeadline) > Date.now())
+  .map(p => ({
+    id: p.id, code: p.code, title: p.title, price: p.price, shippingShares: p.shippingShares,
+    campaignCode: p.campaignCode, campaignName: p.campaignName, kind: p.kind,
+    preorderDeadline: taipeiClock.format(new Date(p.preorderDeadline)),
+    status: p.status, published: true, displayMode: 'formal', soldOut: false,
+    image: p.imagePublicApproved ? p.image : '',
+    sourceUrl: p.sourceUrl,
+  }));
 fs.writeFileSync('dist/public-catalog.json', JSON.stringify({
-  ...data,
-  generatedAt: new Date().toISOString(),
+  ok: true, products: lineProducts, generatedAt: new Date().toISOString(),
+  sourceMode: 'PL3-operating-catalog',
 }, null, 2) + '\n');
 
 
