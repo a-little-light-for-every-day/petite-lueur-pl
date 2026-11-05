@@ -29,7 +29,7 @@
    send.onclick=async()=>{if(busy)return;try{const e=email();send.disabled=true;await request('/api/auth/request-code',{email:e});requestedEmail=e;el('plInlineAuthStatus').textContent='驗證碼已寄出，請在下方填寫申請資料，輸入驗證碼後送出。';send.textContent='重新寄送驗證碼';}catch(e){show(e.message);}finally{send.disabled=false;}};
    const attemptKey=async payload=>{const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload))))).map(x=>x.toString(16).padStart(2,'0')).join('');let attempts=[];try{attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');}catch{}const found=attempts.find(x=>x.digest===digest);if(found)return found.key;const key=crypto.randomUUID();attempts.push({digest,key});try{sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.slice(-50)));}catch{}return key;};
    window.submitOrder=async()=>{
-    if(busy)return;const completed=[];
+    if(busy)return;const completed=[];const receipts=[];
     try{
      if(typeof cart==='undefined'||!cart.length)throw Error('購物袋目前沒有商品');
      if(typeof plCatalogVerified!=='undefined'&&!plCatalogVerified)throw Error('商品仍在核對最新資料，請稍等後再送出。');
@@ -42,9 +42,9 @@
      if(!token||verifiedEmail!==e){let restored=false;if(base===location.origin){try{const session=await request('/api/auth/session');restored=session.email?.toLowerCase()===e;}catch{}}
       if(!restored){if(requestedEmail!==e||!/^\d{6}$/.test(value('plInlineOtp')))throw Error('請先寄送並填寫這個 Email 的六位數驗證碼');const verified=await request('/api/auth/verify-code',{email:e,code:value('plInlineOtp')});token=verified.token;}verifiedEmail=e;
      }
-     for(const[group_id,items]of groups){const payload={name,group_id,items,adult_confirmed:true,terms_confirmed:true,no_abandon_confirmed:true,contact,delivery_method:delivery,...(group_id==='WEVERSE-PLAVE-STARTRACE-261106'?{benefit_preference:preference}:{})};const key=await attemptKey({email:e,...payload});const r=await request('/api/operations/checkout',{key,...payload},token);completed.push(r.result.order_id);cart=cart.filter(line=>!(groups.get(group_id)||[]).some(x=>x.product_id===line.productId));if(typeof saveCart==='function')saveCart();try{const attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.filter(x=>x.key!==key)));}catch{}}
+     for(const[group_id,items]of groups){const payload={name,group_id,items,adult_confirmed:true,terms_confirmed:true,no_abandon_confirmed:true,contact,delivery_method:delivery,...(group_id==='WEVERSE-PLAVE-STARTRACE-261106'?{benefit_preference:preference}:{})};const key=await attemptKey({email:e,...payload});const r=await request('/api/operations/checkout',{key,...payload},token);completed.push(r.result.order_id);receipts.push({group_id,status:r.result.status});cart=cart.filter(line=>!(groups.get(group_id)||[]).some(x=>x.product_id===line.productId));if(typeof saveCart==='function')saveCart();try{const attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.filter(x=>x.key!==key)));}catch{}}
      if(typeof renderCart==='function')renderCart();if(typeof renderProducts==='function')renderProducts();
-     checkout.classList.remove('hidden');btn.hidden=true;show('訂購申請已送出！編號：'+completed.join('、')+'。結單後提供第一階段付款通知，後續運費另於二補核算。','ok');
+     checkout.classList.remove('hidden');btn.hidden=true;const rush=receipts.some(x=>x.group_id==='WEVERSE-PLAVE-STARTRACE-261106');const standby=receipts.some(x=>x.status==='waitlisted');show('訂購申請已送出！編號：'+completed.join('、')+'。'+(standby?'其中有訂單列入候補，尚未取得採購名額；請等候後續通知，現在不需付款。':rush?'此為搶購團，須以官方實際購買成功的品項為準，成功後才通知第一階段付款；運費另於二補結算。':'結單後提供第一階段付款通知，後續運費另於二補核算。'),'ok');
     }catch(e){if(completed.length){if(typeof renderCart==='function')renderCart();checkout.classList.remove('hidden');}show((completed.length?'已保存 '+completed.join('、')+'；其他商品尚未送出：':'')+e.message);}
     finally{busy=false;btn.disabled=false;send.disabled=false;btn.textContent='驗證並送出訂購申請 →';}
    };
