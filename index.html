@@ -3127,6 +3127,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     <section class="plCatalogDetail" aria-label="所選團次商品清單">
       <div class="plCatalogDetailHead"><span class="plInfoStatus">✦ ${esc(status)}</span><h3>${esc(title)}</h3>
       <div class="plCatalogDetailMeta"><span>${gallery.length} 件商品</span></div></div>
+      ${currentItems.some(p=>String(p.campaignCode)==='WEVERSE-PLAVE-STARTRACE-261106')?`<section class="noticeBox bonus" style="padding:16px;margin:12px 0;border-radius:12px" aria-label="STAR TRACE 滿額特典與排卡"><strong>滿額特典與排卡</strong><p>每滿 ₩50,000 取得 1 個分配資格；合併團實際到卡後，依志願抽順位分配。</p><p>選擇商品加入購物袋後，即可在本商店填寫第 1～5 志願、是否接受重複卡，並查看資格試算。</p><button type="button" class="primary" onclick="openCart()">開啟購物袋・填寫排卡志願 →</button><p class="meta">PL 預購截止：2026/11/06 10:00（台灣時間）；資格依官方實際認列金額核對。</p></section>`:''}
       <div class="plCatalogProductsLabel"><strong>商品清單</strong></div>
       ${gallery.length?`<div class="plCatalogRows" role="list">${gallery.map(p=>plCampaignItemHtml(p,!tweet)).join('')}</div>`:'<div class="empty">此團次目前沒有符合分類的商品。</div>'}
     </section>`;
@@ -3514,7 +3515,29 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 
   function guideOverlayClose(e){if(e.target===$('guideOverlay'))closeGuide()}
   function overlayClose(e){if(e.target===$('cartOverlay'))closeCart()}
+
+  let plStarBonusPreference={members:['','','','',''],allow_repeat:false,confirmed:false};
+  const plStarBonusMembers=['藝俊','諾亞','斑比','銀虎','河玟'];
+  const plStarReferencePrices={"71375":6364,"71376":16364,"71377":4545,"71378":8182,"71379":8182,"71380":59091,"71381":15455,"71382":17727,"71383":10909,"71385":3636,"71386":79091};
+  function plStarCartLines(){return cart.filter(line=>String((productById(line.productId)||{}).campaignCode)==='WEVERSE-PLAVE-STARTRACE-261106');}
+  function plRenderStarBonusCart(){
+    let panel=document.getElementById('plStarBonusCart');const lines=plStarCartLines();
+    if(!lines.length){if(panel)panel.hidden=true;return;}
+    if(!panel){panel=document.createElement('section');panel.id='plStarBonusCart';panel.className='noticeBox bonus';panel.style.cssText='margin:18px 0;padding:18px;border-radius:14px';panel.setAttribute('aria-label','正式商店滿額特典與排卡志願');
+      panel.innerHTML='<h3 style="margin:0 0 10px">滿額特典與排卡志願</h3><p>每滿 ₩50,000 取得 1 個分配資格；合併團實際取得卡片後，再依抽籤順位與成員志願分配。</p><p id="plStarBonusEstimate" aria-live="polite"></p><p class="meta">以上為官方未稅參考價試算；最終資格依官方採購認列金額核對，運費不計入。同一 Email 的本團客單合併核對，未達門檻仍可先填志願。</p><div id="plStarRankFields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px"></div><p id="plStarRankError" role="alert" style="color:#a7484b"></p><label class="check"><input id="plStarRepeat" type="checkbox">多個資格時接受重複成員卡</label><label class="check"><input id="plStarConsent" type="checkbox">我了解資格不是保證獲卡，依實際到卡與順位分配，不保證第一志願。</label><p class="meta">帽T額外幻彩卡及商品內附卡隨商品歸購買者，與滿額卡池分開。PL 收單截止：2026/11/06 10:00（台灣時間）。</p>';
+      for(let i=0;i<5;i++){const label=document.createElement('label');label.className='field';label.textContent='第 '+(i+1)+' 志願';const select=document.createElement('select');select.style.width='100%';select.innerHTML='<option value="">請選擇成員</option>'+plStarBonusMembers.map(m=>'<option>'+m+'</option>').join('');select.onchange=()=>{plStarBonusPreference.members[i]=select.value;plStarRankCheck();};label.append(select);panel.querySelector('#plStarRankFields').append(label);}
+      panel.querySelector('#plStarRepeat').onchange=e=>plStarBonusPreference.allow_repeat=e.target.checked;
+      panel.querySelector('#plStarConsent').onchange=e=>plStarBonusPreference.confirmed=e.target.checked;
+      document.getElementById('checkout').before(panel);
+    }
+    panel.hidden=false;let amount=0;for(const line of lines){const p=productById(line.productId)||{};const sid=String(p.sourceUrl||p.code||'').match(/(?:sales\/|WV-PLAVE-)(\d{5})/)?.[1];amount+=(plStarReferencePrices[sid]||0)*Number(line.quantity||0);}
+    panel.querySelector('#plStarBonusEstimate').textContent='本團參考金額 ₩'+amount.toLocaleString('zh-TW')+'｜預估 '+Math.floor(amount/50000)+' 個資格｜距下一個資格 ₩'+(50000-amount%50000).toLocaleString('zh-TW');
+  }
+  function plStarRankCheck(){const m=plStarBonusPreference.members,valid=m.length===5&&new Set(m).size===5&&m.every(x=>plStarBonusMembers.includes(x));const el=document.getElementById('plStarRankError');if(el)el.textContent=m.some(Boolean)&&!valid?'請將五位成員各選一次，不能重複。':'';return valid;}
+  window.plStarBonusDraft=function(){if(!plStarCartLines().length)return null;if(!plStarRankCheck())throw Error('請先填寫五位不重複的滿額排卡志願');if(!plStarBonusPreference.confirmed)throw Error('請先確認滿額排卡規則');return{members:[...plStarBonusPreference.members],allow_repeat:plStarBonusPreference.allow_repeat,confirmed:true};};
+
   function renderCart(){
+    plRenderStarBonusCart();
     const box=$('cartLines');box.innerHTML='';
     if(!cart.length){box.innerHTML='<div class="empty">購物袋目前是空的。</div>';$('cartSummary').classList.add('hidden');$('checkout').classList.add('hidden');const oc=$('onsiteContactFields');if(oc)oc.classList.add('hidden');return}
     cart.forEach((line,i)=>{const p=productById(line.productId)||line;const el=document.createElement('div');el.className='cartLine';el.style.gridTemplateColumns=line.image?'64px 1fr':'minmax(0,1fr)';el.innerHTML=`${line.image?`<img src="${esc(line.image)}" alt="${esc(line.title||'商品')}｜Petite Lueur PL">`:''}<div><div class="lineTop"><div><div class="lineTitle">${esc(line.title)}</div>${line.variantLabel?`<div class="lineVariant">${esc(line.variantLabel)}</div>`:''}${(Number(p.selectionPreorderLimit||0)>0||isOnsite(p))?`<div class="lineVariant">${isOnsite(p)?'現地代購：':'本團可接：'}${esc(limitText(p))}</div>`:''}</div><button class="remove" onclick="removeLine(${i})">移除</button></div><div class="lineBottom"><b>${money(line.price)}</b><div class="miniQty"><button onclick="cartStep(${i},-1)">−</button><span>${line.quantity}</span><button onclick="cartStep(${i},1)">＋</button></div></div></div>`;box.appendChild(el)});
