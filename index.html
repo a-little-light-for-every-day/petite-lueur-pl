@@ -3518,20 +3518,20 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 
   let plStarBonusPreference={members:['','','','',''],allow_repeat:false,confirmed:false};
   const plStarBonusMembers=['藝俊','諾亞','斑比','銀虎','河玟'];
-  const plStarReferencePrices={"71375":6364,"71376":16364,"71377":4545,"71378":8182,"71379":8182,"71380":59091,"71381":15455,"71382":17727,"71383":10909,"71385":3636,"71386":79091};
+  const plStarReferencePrices={"71375":7000,"71376":18000,"71377":5000,"71378":9000,"71379":9000,"71380":65000,"71381":17000,"71382":19500,"71383":12000,"71385":4000,"71386":87000};
   function plStarCartLines(){return cart.filter(line=>String((productById(line.productId)||{}).campaignCode)==='WEVERSE-PLAVE-STARTRACE-261106');}
   function plRenderStarBonusCart(){
     let panel=document.getElementById('plStarBonusCart');const lines=plStarCartLines();
     if(!lines.length){if(panel)panel.hidden=true;return;}
     if(!panel){panel=document.createElement('section');panel.id='plStarBonusCart';panel.className='noticeBox bonus';panel.style.cssText='margin:18px 0;padding:18px;border-radius:14px';panel.setAttribute('aria-label','正式商店滿額特典與排卡志願');
-      panel.innerHTML='<h3 style="margin:0 0 10px">滿額特典與排卡志願</h3><p>每滿 ₩50,000 取得 1 個分配資格；合併團實際取得卡片後，再依抽籤順位與成員志願分配。</p><p id="plStarBonusEstimate" aria-live="polite"></p><p class="meta">以上為官方未稅參考價試算；最終資格依官方採購認列金額核對，運費不計入。同一 Email 的本團客單合併核對，未達門檻仍可先填志願。</p><div id="plStarRankFields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px"></div><p id="plStarRankError" role="alert" style="color:#a7484b"></p><label class="check"><input id="plStarRepeat" type="checkbox">多個資格時接受重複成員卡</label><label class="check"><input id="plStarConsent" type="checkbox">我了解資格不是保證獲卡，依實際到卡與順位分配，不保證第一志願。</label><p class="meta">帽T額外幻彩卡及商品內附卡隨商品歸購買者，與滿額卡池分開。PL 收單截止：2026/11/06 10:00（台灣時間）。</p>';
+      panel.innerHTML='<h3 style="margin:0 0 10px">滿額特典與排卡志願</h3><p>每滿 ₩50,000 取得 1 個分配資格；合併團實際取得卡片後，再依抽籤順位與成員志願分配。</p><p id="plStarBonusEstimate" aria-live="polite"></p><p class="meta">以上為官方韓幣含稅商品價試算；最終資格依官方採購認列金額核對，運費不計入。同一 Email 的本團客單合併核對，未達門檻仍可先填志願。</p><div id="plStarRankFields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px"></div><p id="plStarRankError" role="alert" style="color:#a7484b"></p><label class="check"><input id="plStarRepeat" type="checkbox">多個資格時接受重複成員卡</label><label class="check"><input id="plStarConsent" type="checkbox">我了解資格不是保證獲卡，依實際到卡與順位分配，不保證第一志願。</label><p class="meta">帽T額外幻彩卡及商品內附卡隨商品歸購買者，與滿額卡池分開。PL 收單截止：2026/11/06 10:00（台灣時間）。</p>';
       for(let i=0;i<5;i++){const label=document.createElement('label');label.className='field';label.textContent='第 '+(i+1)+' 志願';const select=document.createElement('select');select.style.width='100%';select.innerHTML='<option value="">請選擇成員</option>'+plStarBonusMembers.map(m=>'<option>'+m+'</option>').join('');select.onchange=()=>{plStarBonusPreference.members[i]=select.value;plStarRankCheck();};label.append(select);panel.querySelector('#plStarRankFields').append(label);}
       panel.querySelector('#plStarRepeat').onchange=e=>plStarBonusPreference.allow_repeat=e.target.checked;
       panel.querySelector('#plStarConsent').onchange=e=>plStarBonusPreference.confirmed=e.target.checked;
       document.getElementById('checkout').before(panel);
     }
     panel.hidden=false;let amount=0;for(const line of lines){const p=productById(line.productId)||{};const sid=String(p.sourceUrl||p.code||'').match(/(?:sales\/|WV-PLAVE-)(\d{5})/)?.[1];amount+=(plStarReferencePrices[sid]||0)*Number(line.quantity||0);}
-    panel.querySelector('#plStarBonusEstimate').textContent='本團參考金額 ₩'+amount.toLocaleString('zh-TW')+'｜預估 '+Math.floor(amount/50000)+' 個資格｜距下一個資格 ₩'+(50000-amount%50000).toLocaleString('zh-TW');
+    panel.querySelector('#plStarBonusEstimate').textContent='本團含稅商品金額 ₩'+amount.toLocaleString('zh-TW')+'｜預估 '+Math.floor(amount/50000)+' 個資格｜距下一個資格 ₩'+(50000-amount%50000).toLocaleString('zh-TW');
   }
   function plStarRankCheck(){const m=plStarBonusPreference.members,valid=m.length===5&&new Set(m).size===5&&m.every(x=>plStarBonusMembers.includes(x));const el=document.getElementById('plStarRankError');if(el)el.textContent=m.some(Boolean)&&!valid?'請將五位成員各選一次，不能重複。':'';return valid;}
   window.plStarBonusDraft=function(){if(!plStarCartLines().length)return null;if(!plStarRankCheck())throw Error('請先填寫五位不重複的滿額排卡志願');if(!plStarBonusPreference.confirmed)throw Error('請先確認滿額排卡規則');return{members:[...plStarBonusPreference.members],allow_repeat:plStarBonusPreference.allow_repeat,confirmed:true};};
