@@ -47,6 +47,26 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
  if(c.type.startsWith('benefit_'))return applyBenefit(s,c,{id,now});
  switch(c.type){
+ case 'legacy_order_import_single':{
+  must(c.confirmed===true,'請確認已核對舊版原單及正式資料庫');
+  const oid=text(c.order_id,100),name=text(c.name),customerEmail=text(c.email,320).toLowerCase();
+  must(/^PL-\d{6}-\d{5,8}$/.test(oid),'原單號格式不正確');
+  must(!s.orders.some(o=>o.id===oid),'原單號已存在，禁止覆寫或重複匯入',409);
+  must(s.groups.some(g=>g.id===c.group_id),'找不到對應的正式團次');
+  must(name&&email(customerEmail),'原單姓名或Email無效');
+  must(Array.isArray(c.items)&&c.items.length===1,'單筆安全匯入僅接受一項已核對商品');
+  const l=c.items[0];must(text(l.name)&&text(l.sku),'原商品名稱或SKU不可空白');
+  const quantity=positive(l.quantity),unitPrice=positive(l.unit_price_twd),shippingUnits=positive(l.shipping_units);
+  must(quantity*unitPrice===positive(c.expected_goods_twd),'商品數量與原單總額不符');
+  const sourceURL=text(c.source_url,2000);
+  must(/^https:\/\/(?:www\.)?notion\.so\/(?:p\/)?[a-f0-9-]{32,36}\/?$/i.test(sourceURL),'須提供正式 Notion 原單頁面網址');
+  must(c.source_revision&&Number.isFinite(Date.parse(c.source_revision)),'須提供原 Notion 最後修改時間');
+  must(c.source_status==='訂購申請待確認'&&c.source_payment_status==='尚未通知付款','僅接受尚未通知付款的原單');
+  const item={id:text(l.id,160)||oid+':01',name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity,unit_price_twd:unitPrice,purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:shippingUnits,shipping_units_confirmed:true,fulfillment_kind:'physical',hold:null};
+  must(!s.orders.some(o=>o.items?.some(x=>x.id===item.id)),'原履約項目識別碼已存在，禁止重複匯入',409);
+  s.orders.push({id:oid,group_id:c.group_id,name,email:customerEmail,status:'review_pending',items:[item],goods_twd:quantity*unitPrice,first_channel:'transfer',raw_item_text:'',created_at:text(c.original_created_at,60)||now,source_url:sourceURL,source_revision:c.source_revision,source_status:c.source_status,source_payment_status:c.source_payment_status,notified_first:false,legacy_import:{at:now,evidence:text(c.evidence,1000),no_payment_notice:true}});
+  changed.push(oid);result={order_id:oid,status:'review_pending',notices_created:0,invoices_created:0};break;
+ }
  case 'legacy_reconcile':{result=completeLegacyOperations(s,c,{now,id});break;}
  case 'catalog_restore_approved':{
   must(c.confirmed===true,'請確認沿用舊站已公開核准的內容');let published=0;const blocked=[];
