@@ -55,6 +55,7 @@ export function createSlots(customers){
     const e=eligibility(customer.lines);
     for(let n=1;n<=e.slots;n++)slots.push({id:`${customer.customer_order_id}:slot:${n}`,
       customer_order_id:customer.customer_order_id,preferences:[...customer.preferences],
+      prefer_full_set:customer.prefer_full_set!==false,
       accepts_duplicates:customer.accepts_duplicates===true,
       accepts_nonpreferred:customer.accepts_nonpreferred===true});
   }
@@ -73,8 +74,24 @@ export function allocateCards({slots,draw_order,cards,draw_evidence,adjustments=
   unique(available.map(x=>x.card_id),'實寄卡片編號不可重複');
   check(available.every(x=>x.card_id&&STAR_TRACE_MEMBERS.includes(x.member)),'卡池資料錯誤');
   const allocated=[],unallocated=[];
+  // An eligible ₩250,000 customer receives all five distinct members first,
+  // if and only if an entire set is available; preserve documented draw ranks.
+  const prioritized=[...new Set(draw_order.map(id=>slots.find(s=>s.id===id).customer_order_id))];
+  for(const owner of prioritized){
+    const theirs=draw_order.filter(id=>slots.find(s=>s.id===id).customer_order_id===owner);
+    const first=slots.find(s=>s.id===theirs[0]);
+    if(theirs.length<5||!first.prefer_full_set)continue;
+    const selected=STAR_TRACE_MEMBERS.map(member=>available.find(c=>c.member===member));
+    if(selected.some(c=>!c))continue;
+    for(let i=0;i<5;i++){
+      const id=theirs[i],card=selected[i];
+      available.splice(available.findIndex(c=>c.card_id===card.card_id),1);
+      allocated.push({slot_id:id,customer_order_id:owner,card_id:card.card_id,member:card.member,rank:draw_order.indexOf(id)+1,status:'待裝箱',full_set_priority:true});
+    }
+  }
   for(const id of draw_order){
     const slot=slots.find(s=>s.id===id);
+    if(allocated.some(x=>x.slot_id===id))continue;
     const existing=allocated.filter(x=>x.customer_order_id===slot.customer_order_id).map(x=>x.member);
     const chosen=slot.preferences.find(member=>available.some(c=>c.member===member&&(slot.accepts_duplicates||!existing.includes(member))));
     const cardIndex=chosen===undefined?-1:available.findIndex(c=>c.member===chosen);

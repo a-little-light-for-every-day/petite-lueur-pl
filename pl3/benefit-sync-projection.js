@@ -12,6 +12,7 @@ export function benefitCampaignProjection(state,campaign){
     eligible_krw:person.amount_krw,hoodie_qty:person.hoodie_qty,
     earphone_qty:person.earphone_qty,eligible_for_draw:person.eligible,
     preferences:person.preference?.members||[],
+    prefer_full_set:person.preference?.prefer_full_set!==false,
     accepts_duplicates:person.preference?.allow_repeat===true,
     accepts_nonpreferred:person.preference?.accept_other===true
   }));
@@ -19,7 +20,7 @@ export function benefitCampaignProjection(state,campaign){
     customer_order_id:person.order_ids[0],customer_key:person.key,
     customer_order_ids:person.order_ids,eligible_krw:person.amount_krw,
     slots:person.qualifications,to_next_krw:person.next_krw,
-    eligible_for_draw:person.eligible
+    eligible_for_draw:person.eligible,priority_full_set:person.priority_full_set
   }));
   const official_orders=summary.batches.map(batch=>({
     official_order_id:batch.official_order,checkout_id:batch.id,
@@ -30,7 +31,7 @@ export function benefitCampaignProjection(state,campaign){
   const tickets=[...(campaign.tickets||[])].sort((a,b)=>a.rank-b.rank);
   const allocated=tickets.filter(t=>t.card_id).map(t=>({
     slot_id:t.id,customer_order_id:t.order_ids[0],customer_key:t.customer_key,
-    card_id:t.card_id,member:t.member,rank:t.rank,
+    card_id:t.card_id,member:t.member,rank:t.rank,full_set_priority:t.full_set_priority===true,
     status:t.fulfillment?.stage||t.stage||'待裝箱',fulfillment:t.fulfillment||null
   }));
   const unallocated=tickets.filter(t=>!t.card_id).map(t=>({

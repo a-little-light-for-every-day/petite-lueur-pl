@@ -9,5 +9,5 @@ export function benefitEstimate(lines){
 export function normalizeBenefitPreference(value){
  if(!value||!Array.isArray(value.members)||value.members.length!==5||new Set(value.members).size!==5||!value.members.every(m=>BENEFIT_MEMBERS.includes(m)))throw Object.assign(Error('請填寫五位不重複的成員志願順序'),{status:400});
  if(value.confirmed!==true)throw Object.assign(Error('請確認滿額特典與排卡規則'),{status:400});
- return{members:[...value.members],allow_repeat:value.allow_repeat===true,accept_other:false,confirmed:true};
+ return{members:[...value.members],allow_repeat:value.allow_repeat===true,prefer_full_set:value.prefer_full_set!==false,accept_other:false,confirmed:true};
 }

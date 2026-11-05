@@ -110,6 +110,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'group_save':{
   const g=s.groups.find(x=>x.id===c.id);must(text(c.title),'請輸入團次名稱');if(c.auto_close)must(c.deadline&&Number.isFinite(Date.parse(c.deadline))&&c.payment_due_at&&Date.parse(c.payment_due_at)>Date.parse(c.deadline),'自動結單須設定有效截止與付款期限');
+  if((g?.id||c.id)===BENEFIT_GROUP&&c.status==='closed')must(g?.sale_phase==='finished','搶購團應先核實一販與二販結果，不可提前標記結單',409);
   if(c.create_only)must(!g,'原團次 ID 已存在，禁止覆寫；請使用編輯團次',409);
   const data={id:g?.id||text(c.id,160)||id,title:text(c.title),deadline:c.deadline||null,payment_due_at:c.payment_due_at||null,source_url:text(c.source_url,2000),auto_close:c.auto_close===true,status:['open','closed','draft','cancelled'].includes(c.status)?c.status:g?.status||'open'};
   if(g)Object.assign(g,data);else s.groups.push(data);result={group_id:data.id};break;
@@ -120,7 +121,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:positive(l.shipping_units||1),fulfillment_kind:['service','fee','forwarding'].includes(l.fulfillment_kind)?l.fulfillment_kind:'physical',hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
   const status=c.group_id===BENEFIT_GROUP&&c.admission?.status==='waitlisted'?'waitlisted':prior?.status||'active';
   const o={id:prior?.id||text(c.id)||'PL3-'+id,group_id:c.group_id,email:c.email.trim().toLowerCase(),name:text(c.name),status,items,goods_twd:items.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0),first_channel:c.first_channel==='cod'?'cod':'transfer',raw_item_text:'',created_at:prior?.created_at||now,source_url:null,notified_first:false,acceptance:c.acceptance||null,admission:c.admission||prior?.admission||null,application:c.application?{contact:text(c.application.contact,200),delivery_method:text(c.application.delivery_method,200),no_abandon_confirmed:c.application.no_abandon_confirmed===true}:prior?.application||null,benefit_preference:c.benefit_preference?{...c.benefit_preference,...normalizeBenefitPreference(c.benefit_preference)}:prior?.benefit_preference||null};
-  if(prior){noticesChanged(s,[prior.id]);Object.assign(prior,o);for(const b of s.invoices.filter(x=>x.order_id===o.id&&x.phase==='first'))b.amount_twd=o.goods_twd;}else s.orders.push(o);if(c.benefit_preference){const campaign=(s.config.benefit_campaigns||[]).find(p=>p.group_id===o.group_id);if(campaign&&!campaign.tickets)campaign.preferences[o.email]={members:o.benefit_preference.members,allow_repeat:o.benefit_preference.allow_repeat,accept_other:false,evidence:'客人Email驗證後隨訂單 '+o.id+' 提交；'+now};}changed.push(o.id);result={order_id:o.id,status:o.status};break;
+  if(prior){noticesChanged(s,[prior.id]);Object.assign(prior,o);for(const b of s.invoices.filter(x=>x.order_id===o.id&&x.phase==='first'))b.amount_twd=o.goods_twd;}else s.orders.push(o);if(c.benefit_preference){const campaign=(s.config.benefit_campaigns||[]).find(p=>p.group_id===o.group_id);if(campaign&&!campaign.tickets)campaign.preferences[o.email]={members:o.benefit_preference.members,allow_repeat:o.benefit_preference.allow_repeat,prefer_full_set:o.benefit_preference.prefer_full_set!==false,accept_other:false,evidence:'客人Email驗證後隨訂單 '+o.id+' 提交；'+now};}changed.push(o.id);result={order_id:o.id,status:o.status};break;
  }
  case 'order_promote':{
   const o=order(s,c.order_id);must(o.group_id===BENEFIT_GROUP&&o.status==='waitlisted','僅可將本團候補單升為可採購單');must(c.confirmed===true&&text(c.evidence),'請確認可用代墊預算及候補升級依據');
@@ -136,8 +137,23 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const lines=c.items.map((x,i)=>{const old=o.items.find(l=>l.id===x.id);const q=positive(x.quantity),price=money(x.unit_price_twd);must(text(x.name),'商品名稱不可空白');must(!old||q>=old.purchased,'需求數量不得小於已實購');return {...(old||{id:id+':'+i,purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0}),name:text(x.name),sku:text(x.sku),variant:text(x.variant),quantity:q,unit_price_twd:price,shipping_units:positive(x.shipping_units||1)};});
   must(o.items.filter(l=>l.purchased>0).every(l=>lines.some(x=>x.id===l.id)),'不可移除已採購品項');must(lines.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0)===o.goods_twd,'明細總額必須等於原商品款，不能直接改動舊帳');o.items=lines;o.name=text(c.name);o.email=c.email.trim().toLowerCase();changed.push(o.id);break;
  }
+ case 'star_trace_sale_update':{
+  const g=s.groups.find(x=>x.id===BENEFIT_GROUP);must(g,'找不到 STAR TRACE 團次');
+  must(c.confirmed===true&&text(c.evidence),'須確認官方一販／二販結果與證據');
+  must(['first_complete','second_complete','no_second_sale'].includes(c.phase),'不支援的搶購階段');
+  const prior=g.sale_phase||'intake';
+  must(prior!=='finished','此團搶購階段已結束，不可覆寫',409);
+  if(c.phase==='first_complete')must(prior==='intake','一販結果已登錄，不能重複順延',409);
+  else must(prior==='awaiting_second','請先登錄一販結果與順延名單',409);
+  g.sale_phase=c.phase==='first_complete'?'awaiting_second':'finished';
+  g.sale_result=c.phase;g.sale_evidence=text(c.evidence,2000);g.sale_updated_at=now;
+  const remaining=s.orders.filter(o=>o.group_id===BENEFIT_GROUP&&open(o)).flatMap(o=>o.items.filter(l=>l.purchased<l.quantity).map(l=>({order_id:o.id,item_id:l.id,remaining:l.quantity-l.purchased})));
+  result={sale_phase:g.sale_phase,carryover:c.phase==='first_complete'?remaining:[],unfulfilled:c.phase!=='first_complete'?remaining:[]};
+  break;
+ }
  case 'close_group':{
   const g=s.groups.find(x=>x.id===c.group_id);must(g,'找不到團次');must(g.status!=='cancelled','團次已取消');must(c.payment_due_at||g.payment_due_at,'請確認一補付款期限');const due=c.payment_due_at||g.payment_due_at;must(Number.isFinite(Date.parse(due)),'付款期限格式錯誤');
+  if(g.id===BENEFIT_GROUP)must(g.sale_phase==='finished','STAR TRACE 一販未購得自動順延二販；須先確認二販結束或官方無二販，禁止提前結單與發付款通知',409);
   g.status='closed';g.closed_at=g.closed_at||now;g.payment_due_at=due;result={drafts:[],blocked:[]};
   for(const o of s.orders.filter(o=>o.group_id===g.id&&open(o))){
    if(/^【未搶到】/.test(o.raw_item_text||'')){result.blocked.push({order_id:o.id,reason:'來源明確標示未搶到，不建立商品款或付款通知'});continue;}
@@ -228,7 +244,8 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
 }
 export function operationalTasks(s,now=new Date().toISOString()){
  const tasks=[];const add=(type,id,title,detail,priority=2)=>tasks.push({id:type+':'+id,type,object_id:id,title,detail,priority});
- for(const g of s.groups)if(g.status==='open'&&g.deadline&&g.deadline<now)add('group',g.id,'團次已到結單時間',g.title,1);
+ const starGroup=s.groups.find(g=>g.id===BENEFIT_GROUP);if(starGroup?.sale_phase==='awaiting_second')add('star_trace',starGroup.id,'一販未購得品項順延二販','原訂單保留，待官方二販結果確認後再結單',1);
+ for(const g of s.groups)if(g.status==='open'&&g.deadline&&g.deadline<now&&!(g.id===BENEFIT_GROUP&&g.sale_phase!=='finished'))add('group',g.id,'團次已到結單時間',g.title,1);
  for(const n of s.notices)if(['draft','failed','unknown','queued'].includes(n.status))add('notice',n.id,n.status==='draft'?'通知待審核':n.status==='unknown'?'寄送結果不明，禁止直接重寄':n.status==='queued'?'通知待寄出':'通知失敗',n.subject,n.status==='unknown'?0:1);
  for(const r of s.reports||[])if(r.status==='pending')add('report',r.id,'客人付款回報待核帳',r.order_id+' · NT$'+r.amount_twd,1);
  for(const b of s.invoices){if(b.status==='void')continue;const due=balance(s,b);if(!b.finalized)add('invoice',b.id,'帳款金額待確認',b.order_id);else if(due>0&&b.channel==='cod')add('invoice',b.id,'貨到付款待平台撥款',b.order_id+' · NT$'+due);else if(due>0)add('invoice',b.id,b.due_at&&b.due_at<now?'付款已逾期':'等待付款',b.order_id+' · NT$'+due,b.due_at&&b.due_at<now?1:3);}
@@ -246,6 +263,10 @@ export function operatingStatus(s,o){
  if(q&&sum('delivered')===q)return '已完成';if(sum('shipped')>0)return sum('shipped')===q?'台灣已寄出':'部分已寄出';
  const bills=s.invoices.filter(b=>b.order_id===o.id&&b.status!=='void'),second=bills.find(b=>b.phase==='second'),first=bills.find(b=>b.phase==='first');
  if(q&&sum('taiwan')>0){if(!second?.finalized)return '商品抵台／待二補結算';if(balance(s,second)>0)return second.channel==='cod'?'抵台／二補貨到付款':'等待第二次付款';return '抵台／待出貨';}
- if(sum('transit')>0)return '國際運送中';if(sum('overseas')>0)return '海外倉庫已到貨';if(sum('purchased')>0)return sum('purchased')===q?'預購等待中':'部分已採購';
+ if(sum('transit')>0)return '國際運送中';if(sum('overseas')>0)return '海外倉庫已到貨';
+ const sale=o.group_id===BENEFIT_GROUP?s.groups.find(g=>g.id===BENEFIT_GROUP)?.sale_phase:null;
+ if(sum('purchased')>0){if(sale==='awaiting_second'&&sum('purchased')<q)return '部分已購得／餘量順延二販';return sum('purchased')===q?'預購等待中':sale==='finished'?'部分購得／未購得待公告':'部分已採購';}
+ if(sale==='awaiting_second')return '一販未購得／自動順延二販';
+ if(sale==='finished')return '搶購未購得／待退款或結案公告';
  if(lines.some(l=>l.hold&&!l.hold.released_at))return '採購延後／待確認解除';if(first?.finalized&&balance(s,first)===0)return o.service_kind==='forwarding'?'轉運品等待海外倉入庫':['payment','korea'].includes(o.service_kind)?'已收款／待執行服務':'已收款／待採購';if(first?.channel==='cod')return '商品款貨到付款';if(first?.finalized&&balance(s,first)>0)return '待第一階段付款';return o.source_status||'訂購申請待確認';
 }

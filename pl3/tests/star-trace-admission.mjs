@@ -71,6 +71,7 @@ test('standby does not receive purchase, billing, or draw eligibility; owner can
 
 test('STAR TRACE close bills only verifiably purchased quantities, never requested quantities',()=>{
  let s=fixtureState();
+ s.groups[0].sale_phase='finished'; // First and second-sale reconciliation must precede closure.
  s.orders=[{id:'partial',group_id:BENEFIT_GROUP,name:'測試',email:'a@example.com',status:'active',goods_twd:310,first_channel:'transfer',items:[{...badge,quantity:2,purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,id:'part-a'}]}];
  let result=applyOperation(s,{type:'close_group',group_id:BENEFIT_GROUP,payment_due_at:'2099-01-02T00:00:00Z'},{id:'pre'});
  assert.equal(result.state.invoices.length,0);
