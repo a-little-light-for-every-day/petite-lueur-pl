@@ -15,12 +15,15 @@ const db=new DatabaseSync(':memory:');function prepare(sql){let args=[];const q=
 const env={DB:{prepare,async exec(sql){db.exec(sql)},async batch(qs){db.exec('BEGIN');try{const r=[];for(const q of qs)r.push(await q.run());db.exec('COMMIT');return r}catch(e){db.exec('ROLLBACK');throw e}}}};
 await installOperations(env);let s=newOperations();s.groups=[{id:BENEFIT_GROUP,title:'QA',status:'open',deadline:'2099-01-01T00:00:00Z'}];s.products=[{id:'earphone',sku:'WV-PLAVE-71380',name:'耳機',variant:'單一規格',group_id:BENEFIT_GROUP,status:'available',price_twd:1775,published:true,quantity_limit:2,shipping_units:5}];s.config.benefit_campaigns=[{id:'campaign',group_id:BENEFIT_GROUP,preferences:{},entries:[],batches:[],cards:[],tickets:null}];
 db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(s));
-const body={key:'benefit-checkout-0001',name:'QA',group_id:BENEFIT_GROUP,items:[{product_id:'earphone',quantity:1}],adult_confirmed:true,terms_confirmed:true,benefit_preference:{members:[...BENEFIT_MEMBERS],allow_repeat:true,confirmed:true}};
+const body={key:'benefit-checkout-0001',name:'QA',contact:'@buyer',delivery_method:'7-ELEVEN 賣貨便－運費 NT$38',no_abandon_confirmed:true,group_id:BENEFIT_GROUP,items:[{product_id:'earphone',quantity:1}],adult_confirmed:true,terms_confirmed:true,benefit_preference:{members:[...BENEFIT_MEMBERS],allow_repeat:true,confirmed:true}};
 await assert.rejects(()=>checkoutOperations({...body,benefit_preference:null},'qa@example.com',env),/志願/);
 const r=await checkoutOperations(body,'qa@example.com',env);s=(await loadOperations(env)).state;
 assert.deepEqual(s.orders[0].benefit_preference.members,BENEFIT_MEMBERS);
 assert.equal(s.orders[0].benefit_preference.estimate.qualifications,1);
 assert.equal(s.orders[0].benefit_preference.allow_repeat,true);
+assert.equal(s.orders[0].application.contact,'@buyer');
+assert.equal(s.orders[0].application.delivery_method,'7-ELEVEN 賣貨便－運費 NT$38');
+assert.equal(s.orders[0].application.no_abandon_confirmed,true);
 assert.deepEqual(s.config.benefit_campaigns[0].preferences['qa@example.com'].members,BENEFIT_MEMBERS);
 assert.equal(benefitSummary(s,s.config.benefit_campaigns[0]).people.length,1);
 assert.equal(benefitSummary(s,s.config.benefit_campaigns[0]).qualifications,0);
