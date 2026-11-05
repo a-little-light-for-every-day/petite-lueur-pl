@@ -21,7 +21,7 @@ function harness({reviewPending = true} = {}) {
     '/api/auth/verify-code': {ok:true,token:'verified-token'},
     '/api/operations/checkout': {ok:true,result:{status:'review_pending',order_id:'PL3-review-test'}}
   };
-  const context = {document:{getElementById:id=>nodes[id],activeElement:nodes.plReviewSendCode,addEventListener(){},body:{style:{}}},crypto:{randomUUID:()=> '12345678-1234-1234-1234-123456789012'},fetch:async(path,init)=>{calls.push({path,init});return {ok:true,json:async()=>responses[path]};},money:n=>'NT$'+n.toLocaleString('en-US'),Number,String,JSON,Error,RegExp};
+  const context = {window:{PL_OFFLINE_PREVIEW:false},document:{getElementById:id=>nodes[id],activeElement:nodes.plReviewSendCode,addEventListener(){},body:{style:{}}},crypto:{randomUUID:()=> '12345678-1234-1234-1234-123456789012'},fetch:async(path,init)=>{calls.push({path,init});return {ok:true,json:async()=>responses[path]};},money:n=>'NT$'+n.toLocaleString('en-US'),Number,String,JSON,Error,RegExp};
   vm.createContext(context);
   vm.runInContext(html.slice(first,last),context);
   return {context,nodes,calls,product};
