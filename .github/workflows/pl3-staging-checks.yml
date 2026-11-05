@@ -1,0 +1,25 @@
+name: PL3 staging API checks
+on:
+  push:
+    branches: [pl3-development]
+    paths:
+      - 'pl3/**'
+      - '.github/workflows/pl3-staging-checks.yml'
+  pull_request:
+    paths:
+      - 'pl3/**'
+      - '.github/workflows/pl3-staging-checks.yml'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix pl3/console --ignore-scripts
+      - run: npm --prefix pl3/console run build
+      - run: node --check pl3/worker-api-candidate.js
+      - run: node --test pl3/tests/*.mjs

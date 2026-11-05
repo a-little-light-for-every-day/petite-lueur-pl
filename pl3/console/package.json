@@ -1,0 +1,1 @@
+{"name":"pl-operations-console","version":"0.1.0","private":true,"type":"module","scripts":{"build":"node build.mjs"},"dependencies":{"@refinedev/core":"5.0.12","esbuild":"0.28.2","react":"19.3.1","react-dom":"19.3.1"}}

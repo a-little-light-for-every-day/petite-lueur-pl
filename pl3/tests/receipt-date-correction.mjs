@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {newOperations,applyOperation} from '../operations-domain.js';
+const s=newOperations();s.receipts=[{id:'r',received_at:'2026-11-04T18:52:29.408Z',amount_twd:1600,transaction_id:'original',evidence:'source'}];s.allocations=[];
+const command={type:'receipt_date_correct',receipt_id:'r',expected_received_at:s.receipts[0].received_at,received_at:'2026-11-04',evidence:'original source date',confirmed:true};
+const out=applyOperation(s,command,{id:'date-fix',now:'2026-11-05T03:00:00Z'}).state;
+assert.equal(out.receipts[0].received_at,'2026-11-04');assert.equal(out.receipts[0].amount_twd,1600);assert.equal(out.receipts[0].transaction_id,'original');assert.equal(out.receipts[0].date_corrections[0].previous_received_at,s.receipts[0].received_at);assert.deepEqual(out.allocations,[]);assert.equal(s.receipts[0].date_corrections,undefined);
+assert.throws(()=>applyOperation(out,command),/日期已變動/);
+assert.throws(()=>applyOperation(s,{...command,received_at:'2026-02-30'}),/有效實際入帳日期/);
+assert.throws(()=>applyOperation(s,{...command,confirmed:false}),/更正證據/);
+console.log('receipt date correction: 4 checks passed');
