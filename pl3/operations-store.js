@@ -1,3 +1,4 @@
+import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -110,7 +111,8 @@ export function publicOperationsCatalog(state){
 export async function checkoutOperations(body,email,env){
  if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
  if(!Array.isArray(body.items)||!body.items.length||body.items.length>50||new Set(body.items.map(x=>x.product_id)).size!==body.items.length)throw opsError('商品選擇無效');
- const identity={email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed};
+ const preference=body.group_id===BENEFIT_GROUP?normalizeBenefitPreference(body.benefit_preference):null;
+ const identity={...(preference?{benefit_preference:preference}:{}),email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed};
  if(body.adult_confirmed!==true||body.terms_confirmed!==true)throw opsError('請確認成年及購物須知');
  const requestHash=await hash(JSON.stringify(identity));const key='checkout:'+body.key;
  const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
@@ -118,5 +120,5 @@ export async function checkoutOperations(body,email,env){
  const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
  if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
- return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
+ return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,...(preference?{benefit_preference:{...preference,estimate:benefitEstimate(items),submitted_at:new Date().toISOString(),source:'客人驗證Email後隨訂單送出'}}:{}),first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
 }
