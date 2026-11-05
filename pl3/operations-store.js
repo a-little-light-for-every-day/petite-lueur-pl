@@ -114,14 +114,14 @@ export async function checkoutOperations(body,email,env){
  if(!Array.isArray(body.items)||!body.items.length||body.items.length>50||new Set(body.items.map(x=>x.product_id)).size!==body.items.length)throw opsError('商品選擇無效');
  const preference=body.group_id===BENEFIT_GROUP?normalizeBenefitPreference(body.benefit_preference):null;
  const application={...(body.contact!==undefined?{contact:String(body.contact).trim().slice(0,200)}:{}),...(body.delivery_method!==undefined?{delivery_method:String(body.delivery_method).trim().slice(0,200)}:{}),...(body.no_abandon_confirmed!==undefined?{no_abandon_confirmed:body.no_abandon_confirmed===true}:{})};
- const identity={...application,...(preference?{benefit_preference:preference}:{}),email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed};
+ const identity={...application,...(preference?{benefit_preference:preference}:{}),email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed,...(body.review_only===true?{review_only:true}:{})};
  if(body.adult_confirmed!==true||body.terms_confirmed!==true)throw opsError('請確認成年及購物須知');
  const requestHash=await hash(JSON.stringify(identity));const key='checkout:'+body.key;
  const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('識別碼已被其他內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
  for(let attempt=0;attempt<4;attempt++){
   const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
-  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units_confirmed===false?null:p.shipping_units,shipping_units_confirmed:p.shipping_units_confirmed!==false};});
+  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);if(body.review_only===true&&(p.shipping_units_confirmed!==false||p.manual_review_required!==true))throw opsError('商品已變更為一般訂購或不再受理人工審核，請重新整理商品頁',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units_confirmed===false?null:p.shipping_units,shipping_units_confirmed:p.shipping_units_confirmed!==false};});
   if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
   const admission=body.group_id===BENEFIT_GROUP?starTraceAdmission(current.state,items):null;
   try{

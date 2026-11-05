@@ -1672,6 +1672,35 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     </aside>
   </div>
 
+  <!-- Pending-shipping applications share the approved order-drawer design, but
+       submit exclusively to the PL3 review-only checkout (never legacy RPC). -->
+  <div id="plReviewOverlay" class="overlay hidden" onclick="if(event.target===this)plCloseReviewApplication()">
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="plReviewTitle" onclick="event.stopPropagation()">
+      <div class="drawerHead"><h2 id="plReviewTitle">訂購申請</h2><button class="close" type="button" aria-label="關閉申請表" onclick="plCloseReviewApplication()">×</button></div>
+      <div class="drawerBody">
+        <div id="plReviewLoading" class="summary" role="status">正在核對最新團次與商品資料…</div>
+        <div id="plReviewForm" class="hidden">
+          <div class="cartLines"><div class="cartLine" style="grid-template-columns:minmax(0,1fr)"><div><div class="lineTitle" id="plReviewProductName"></div><div class="lineVariant" id="plReviewProductCode"></div><div class="lineBottom"><b id="plReviewPrice"></b><label class="field" style="width:100px;margin:0"><span>數量</span><input id="plReviewQty" aria-label="申請數量" type="number" inputmode="numeric" min="1" value="1" oninput="plReviewUpdateTotal()"></label></div></div></div></div>
+          <div class="summary"><div class="sumrow"><span>商品件數</span><b id="plReviewCount">1 件</b></div><div class="sumrow total"><span></span><b id="plReviewTotal"></b></div><div class="meta">國際運費份數待實算，這裡只收人工審核申請。送出不代表 PL 已接受訂購；審核前不會產生帳款或付款通知，請勿先匯款。</div></div>
+          <div class="checkout">
+            <div class="field"><label for="plReviewName">訂購人本名</label><input id="plReviewName" autocomplete="name" placeholder="請填本名" maxlength="120"></div>
+            <div class="field"><label for="plReviewEmail">Email</label><input id="plReviewEmail" type="email" autocomplete="email" placeholder="申請驗證及後續通知會寄到這裡" oninput="plReviewInvalidateEmail()"></div>
+            <div class="field"><label for="plReviewContact">社群或手機（必填）</label><input id="plReviewContact" type="text" autocomplete="tel" maxlength="200" placeholder="IG 帳號或手機號碼"></div>
+            <div class="field"><label for="plReviewDelivery">希望收貨方式</label><select id="plReviewDelivery"><option>7-ELEVEN 賣貨便－運費 NT$38</option><option>7-ELEVEN 交貨便－運費 NT$60</option><option>黑貓宅急便－運費到付</option><option>黑貓宅急便－抵台後併入第二次付款</option></select></div>
+            <div class="checkoutGuideLink"><button class="textGuideBtn" type="button" onclick="openGuide('rules')">查看完整購物須知</button></div>
+            <label class="check"><input id="plReviewAdult" type="checkbox"> <span>我確認已滿 18 歲。</span></label>
+            <label class="check"><input id="plReviewNoAbandon" type="checkbox"> <span>我了解經主購確認承接並正式通知付款後，不可任意棄單。</span></label>
+            <label class="check"><input id="plReviewTerms" type="checkbox"> <span>我已閱讀購物須知，確認商品規格及商品款金額，了解國際運費份數待實算、後續運費與二補分攤；送出僅為人工審核申請，未獲確認前不得付款。</span></label>
+            <button id="plReviewSendCode" class="primary" type="button" style="width:100%;margin-top:8px" onclick="plReviewRequestCode()">寄送 Email 驗證碼 →</button>
+            <div id="plReviewOtpStep" class="hidden"><div class="field" style="margin-top:12px"><label for="plReviewOtp">Email 六位數驗證碼</label><input id="plReviewOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="請填入收到的六位數驗證碼"></div><button id="plReviewSubmit" class="primary" type="button" style="width:100%" onclick="plReviewSubmitApplication()">驗證並送出人工審核申請 →</button></div>
+            <div id="plReviewMessage" class="submitMsg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+        <div id="plReviewSuccess" class="summary hidden" role="status"><b>人工審核申請已送出</b><p id="plReviewSuccessId"></p><p>主購將確認是否承接及實際費用；目前尚未產生付款帳款或付款通知，請勿先匯款。</p><a href="/account">Email 驗證查詢申請紀錄 →</a></div>
+      </div>
+    </aside>
+  </div>
+
 
 <script id="plPreviewSafeStorage">
 (function(){
@@ -2204,6 +2233,113 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
       hint.textContent=selected?'這個款式的官方商品頁尚未核對，請勿以其他款式替代。':'請先選擇款式，再開啟對應的官方商品頁。';
     }
   }
+  // Keep the approved storefront checkout drawer for shipping-pending goods.
+  // This is a separate PL3 submission path: legacy plStoreSubmitOrder is never used.
+  let plReviewProduct=null,plReviewGroup=null,plReviewEmailForCode='',plReviewToken='',plReviewAttempt='',plReviewBusy=false,plReviewLastFocus=null;
+  async function plReviewApi(path,body,token=''){
+    const response=await fetch(path,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...(body===undefined?{}:{'X-PL3-Admin-Action':'1'}),...(token?{Authorization:'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+    let payload;try{payload=await response.json()}catch{throw Error('商店服務暫時無法連線，請稍後再試。')}
+    if(!response.ok||payload.ok===false)throw Error(payload.error||'操作未完成，請稍後再試。');
+    return payload;
+  }
+  function plReviewMessage(message,type='bad'){
+    const field=document.getElementById('plReviewMessage');
+    if(field){field.textContent=message||'';field.className='submitMsg'+(type==='ok'?' ok':type==='bad'?' bad':'');}
+  }
+  function plReviewInvalidateEmail(){
+    const email=String(document.getElementById('plReviewEmail')?.value||'').trim().toLowerCase();
+    if(email===plReviewEmailForCode)return;
+    plReviewEmailForCode='';plReviewToken='';
+    document.getElementById('plReviewOtpStep')?.classList.add('hidden');
+    if(document.getElementById('plReviewOtp'))document.getElementById('plReviewOtp').value='';
+    const button=document.getElementById('plReviewSendCode');if(button)button.textContent='寄送 Email 驗證碼 →';
+  }
+  function plReviewUpdateTotal(){
+    if(!plReviewProduct)return;
+    const quantity=Number(document.getElementById('plReviewQty').value),limit=Math.min(Number(plReviewProduct.quantity_limit)||99,Math.floor(22000/plReviewProduct.price_twd));
+    document.getElementById('plReviewCount').textContent=Number.isInteger(quantity)&&quantity>0?quantity+' 件':'—';
+    document.getElementById('plReviewTotal').textContent=Number.isInteger(quantity)&&quantity>0?money(quantity*plReviewProduct.price_twd):'—';
+    document.getElementById('plReviewQty').max=String(limit);
+  }
+  async function plOpenReviewApplication(productId){
+    plReviewLastFocus=document.activeElement;
+    plReviewProduct=null;plReviewGroup=null;plReviewEmailForCode='';plReviewToken='';plReviewAttempt=crypto.randomUUID();plReviewBusy=false;
+    document.getElementById('plReviewOverlay').classList.remove('hidden');
+    document.getElementById('plReviewLoading').classList.remove('hidden');
+    document.getElementById('plReviewForm').classList.add('hidden');
+    document.getElementById('plReviewSuccess').classList.add('hidden');
+    for(const id of ['plReviewName','plReviewEmail','plReviewContact','plReviewOtp'])document.getElementById(id).value='';
+    for(const id of ['plReviewAdult','plReviewNoAbandon','plReviewTerms'])document.getElementById(id).checked=false;
+    document.getElementById('plReviewQty').value='1';
+    document.getElementById('plReviewOtpStep').classList.add('hidden');
+    document.getElementById('plReviewSendCode').textContent='寄送 Email 驗證碼 →';
+    plReviewMessage('');document.body.style.overflow='hidden';
+    try{
+      const catalog=await plReviewApi('/api/operations/catalog');
+      const product=(catalog.products||[]).find(x=>x.id===productId),group=product&&(catalog.groups||[]).find(g=>g.id===product.group_id);
+      if(!product||!group||product.shipping_pending!==true||product.manual_review_required!==true||!(Number(product.price_twd)>0))throw Error('此商品目前未開放人工審核申請，請重新整理正式商店。');
+      plReviewProduct=product;plReviewGroup=group;
+      document.getElementById('plReviewProductName').textContent=product.name;
+      document.getElementById('plReviewProductCode').textContent=[group.title,product.variant,product.sku].filter(Boolean).join(' · ');
+      document.getElementById('plReviewPrice').textContent=money(product.price_twd);
+      plReviewUpdateTotal();
+      document.getElementById('plReviewLoading').classList.add('hidden');
+      document.getElementById('plReviewForm').classList.remove('hidden');
+      document.getElementById('plReviewName').focus();
+    }catch(error){document.getElementById('plReviewLoading').textContent=error.message||'暫時無法載入商品，請稍後再試。';}
+  }
+  function plCloseReviewApplication(){
+    document.getElementById('plReviewOverlay').classList.add('hidden');
+    if(document.getElementById('cartOverlay').classList.contains('hidden')&&document.getElementById('productOverlay').classList.contains('hidden')&&document.getElementById('guideOverlay').classList.contains('hidden'))document.body.style.overflow='';
+    if(plReviewLastFocus?.focus)plReviewLastFocus.focus();
+  }
+  function plReviewCurrentEmail(){
+    const email=String(document.getElementById('plReviewEmail').value||'').trim().toLowerCase();
+    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))throw Error('請填寫正確的 Email。');
+    return email;
+  }
+  async function plReviewRequestCode(){
+    if(plReviewBusy)return;
+    const button=document.getElementById('plReviewSendCode');
+    try{
+      if(window.PL_OFFLINE_PREVIEW)throw Error('這是離線預覽，請使用正式網站提交申請。');
+      if(!plReviewProduct)throw Error('請等待商品資料核對完成。');
+      const email=plReviewCurrentEmail();
+      plReviewBusy=true;button.disabled=true;plReviewMessage('');button.textContent='寄送中…';
+      await plReviewApi('/api/auth/request-code',{email});
+      plReviewEmailForCode=email;plReviewToken='';
+      document.getElementById('plReviewOtpStep').classList.remove('hidden');
+      button.textContent='重新寄送驗證碼';
+      plReviewMessage('驗證碼已寄到 '+email+'。請填入六位數驗證碼後送出申請。','ok');
+      document.getElementById('plReviewOtp').focus();
+    }catch(error){button.textContent='寄送 Email 驗證碼 →';plReviewMessage(error.message);}
+    finally{plReviewBusy=false;button.disabled=false;}
+  }
+  async function plReviewSubmitApplication(){
+    if(plReviewBusy)return;
+    const button=document.getElementById('plReviewSubmit');
+    try{
+      if(window.PL_OFFLINE_PREVIEW)throw Error('這是離線預覽，無法送出申請。');
+      const product=plReviewProduct,group=plReviewGroup,email=plReviewCurrentEmail(),name=document.getElementById('plReviewName').value.trim(),contact=document.getElementById('plReviewContact').value.trim(),quantity=Number(document.getElementById('plReviewQty').value),code=document.getElementById('plReviewOtp').value.trim();
+      if(!product||!group)throw Error('請重新選擇團次商品。');
+      if(!name)throw Error('請填寫訂購人本名。');
+      if(!contact)throw Error('請填寫社群帳號或手機。');
+      if(!Number.isInteger(quantity)||quantity<1||quantity>(Number(product.quantity_limit)||99)||quantity*product.price_twd>22000)throw Error('數量超過本商品接單上限或單筆 NT$22,000 限制。');
+      if(!document.getElementById('plReviewAdult').checked||!document.getElementById('plReviewNoAbandon').checked||!document.getElementById('plReviewTerms').checked)throw Error('請先確認年齡、申請及購物須知事項。');
+      if(email!==plReviewEmailForCode||!/^[0-9]{6}$/.test(code))throw Error('請先完成此 Email 的六位數驗證碼。');
+      plReviewBusy=true;button.disabled=true;button.textContent='驗證並送出中…';plReviewMessage('');
+      if(!plReviewToken){const verified=await plReviewApi('/api/auth/verify-code',{email,code});plReviewToken=verified.token;}
+      if(!plReviewToken)throw Error('Email 驗證未成功，請重新取得驗證碼。');
+      const result=await plReviewApi('/api/operations/checkout',{key:plReviewAttempt,review_only:true,name,group_id:group.id,contact,delivery_method:document.getElementById('plReviewDelivery').value,no_abandon_confirmed:true,adult_confirmed:true,terms_confirmed:true,items:[{product_id:product.id,quantity}]},plReviewToken);
+      if(result.result?.status!=='review_pending')throw Error('申請狀態不是待人工審核，請聯絡 PL 核對編號：'+(result.result?.order_id||'未取得'));
+      document.getElementById('plReviewForm').classList.add('hidden');
+      document.getElementById('plReviewSuccessId').textContent='申請編號：'+result.result.order_id;
+      document.getElementById('plReviewSuccess').classList.remove('hidden');
+    }catch(error){plReviewMessage(error.message||'送出未完成，請稍後重試。');}
+    finally{plReviewBusy=false;button.disabled=false;button.textContent='驗證並送出人工審核申請 →';}
+  }
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!document.getElementById('plReviewOverlay').classList.contains('hidden'))plCloseReviewApplication()});
+
   function plCampaignItemHtml(p,allowPreview=false){
     const mode=storeMode(p),source=plModeOriginalLink(p);
     const exactVariantSources=plExactVariantSources(p);
@@ -2214,9 +2350,6 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
     const manualReview=activeMode!=='news'&&mode==='formal'&&p.shippingPending===true&&p.manualReviewRequired===true
       &&plPublicCampaignOpen(p)&&!deadlineExpired(p.preorderDeadline)&&Number(p.price)>0&&!p.soldOut;
     const status=activeMode==='news'?'情報參考':manualReview?'運費待實算・人工審核申請':canOrder?(window.PL_STATIC_HOSTED&&!plCatalogVerified?'可先選規格':'可申請訂購'):mode==='news'?'情報參考':(window.PL_STATIC_HOSTED&&!plCatalogVerified?'即時核對中':'詢問確認');
-    // The legacy checkout requires final shipping shares. Pending-shipping applications
-    // must go to the PL3 review-only form; preselect one item without creating an order.
-    const reviewLink='/shop#cart='+encodeURIComponent(JSON.stringify([{product_id:id,quantity:1}]));
     return `<div class="plSplitItem" role="listitem">
       <div class="plSplitItemMain">
         <div class="plSplitItemTitle">${name}</div>
@@ -2228,7 +2361,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 
 
       ${canOrder?`<button class="plCatalogOrderBtn" type="button" data-pl-order="${esc(id)}" onclick="event.stopPropagation();openProductDetail(this.dataset.plOrder)">${window.PL_STATIC_HOSTED&&!plCatalogVerified?'先選規格 ＋':'規格／訂購 ＋'}</button>`:''}
-      ${manualReview?`<a class="plCatalogOrderBtn" href="${esc(reviewLink)}" onclick="event.stopPropagation()">人工審核申請 ＋</a>`:''}
+      ${manualReview?`<button class="plCatalogOrderBtn" type="button" data-pl-review="${esc(id)}" onclick="event.stopPropagation();plOpenReviewApplication(this.dataset.plReview)">人工審核申請 ＋</button>`:''}
       ${activeMode==='news'&&source?`<button type="button" data-pl-ask="${esc(id)}" onclick="event.stopPropagation();askAboutNewsProduct(this.dataset.plAsk,event)">詢問可否代購 ♡</button>`:mode==='inquiry'&&source?`<button type="button" data-pl-ask="${esc(id)}" onclick="event.stopPropagation();askAboutProduct(this.dataset.plAsk,event)">詢問 ♡</button>`:''}
       </div></div>`;
   }
@@ -3511,7 +3644,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
 
   function closeGuide(){
     $('guideOverlay').classList.add('hidden');
-    if($('cartOverlay').classList.contains('hidden')&&$('productOverlay').classList.contains('hidden'))document.body.style.overflow=''
+    if($('cartOverlay').classList.contains('hidden')&&$('productOverlay').classList.contains('hidden')&&$('plReviewOverlay').classList.contains('hidden'))document.body.style.overflow=''
   }
 
 
