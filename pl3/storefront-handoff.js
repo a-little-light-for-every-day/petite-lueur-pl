@@ -1,8 +1,10 @@
-// Only catalog item identifiers and quantities enter the URL fragment. No customer fields.
+import{normalizeBenefitPreference}from './benefit-checkout.js';
+// The fragment contains catalog IDs, quantities and optional card ranks only. Never names, email or contact details.
 export function cartFromFragment(fragment,catalog){
  let raw;try{raw=JSON.parse(decodeURIComponent(String(fragment||'').replace(/^#cart=/,'')))}catch{return{cart:{},errors:[]}}
+ let benefit_preference=null;const errors=[];if(raw&&!Array.isArray(raw)&&Array.isArray(raw.items)){try{benefit_preference=normalizeBenefitPreference(raw.benefit_preference);}catch{errors.push('排卡志願無效，請重新填寫。');}raw=raw.items;}
  if(!Array.isArray(raw)||raw.length>50)return{cart:{},errors:['購物袋格式無效，請重新選擇商品。']};
- const cart={},errors=[];for(const x of raw){const p=catalog.products.find(p=>p.id===x.product_id);if(!p||!Number.isInteger(x.quantity)||x.quantity<1||x.quantity>Math.min(p.quantity_limit||99,99)||cart[x.product_id]){errors.push('部分商品已截止、數量超限或不再開放，請重新核對。');continue;}cart[p.id]=x.quantity;}return{cart,errors:[...new Set(errors)]};
+ const cart={};for(const x of raw){const p=catalog.products.find(p=>p.id===x.product_id);if(!p||!Number.isInteger(x.quantity)||x.quantity<1||x.quantity>Math.min(p.quantity_limit||99,99)||cart[x.product_id]){errors.push('部分商品已截止、數量超限或不再開放，請重新核對。');continue;}cart[p.id]=x.quantity;}return{cart,...(benefit_preference?{benefit_preference}:{}),errors:[...new Set(errors)]};
 }
 export function serviceFromFragment(fragment){
  const empty={kind:'proxy',product_url:'',description:'',quantity:1,note:''};let r;try{r=JSON.parse(decodeURIComponent(String(fragment||'').replace(/^#request=/,'')))}catch{return empty}
