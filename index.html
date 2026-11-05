@@ -3450,34 +3450,13 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function closeCart(){$('cartOverlay').classList.add('hidden');if($('productOverlay').classList.contains('hidden')&&$('guideOverlay').classList.contains('hidden'))document.body.style.overflow=''}
   let guideMode='flow';
   let guideFlow='preorder';
-  let shoppingGuideLoaded=false;
-  let shoppingGuideLoading=false;
-
-
   function loadShoppingGuide(){
-    if(window.PL_OFFLINE_PREVIEW){
-      const host=$('guideRulesDynamic');
-      if(host)host.innerHTML='<p class="guideRuleLead">這是離線網頁預覽。完整購物須知請以正式商店為準。</p>';
-      shoppingGuideLoaded=true;
-      return;
-    }
-    if(shoppingGuideLoaded||shoppingGuideLoading)return;
-    shoppingGuideLoading=true;
     const host=$('guideRulesDynamic');
-    call('plGetShoppingGuide').then(data=>{
-      shoppingGuideLoading=false;
-      if(!data||!data.ok){if(host)host.innerHTML='<p class="guideRuleLead">購物須知暫時無法載入。<button type="button" onclick="loadShoppingGuide()">重試載入</button></p>';return}
-      shoppingGuideLoaded=true;
-      if(host){
-        host.innerHTML=data.html||'';
-        host.querySelectorAll('.noticeStrip').forEach(node=>{
-          const label=node.querySelector('b');
-          if(label&&/^目前版本[：:]/.test(label.textContent.trim()))node.remove();
-        });
-      }
-    }).catch(()=>{shoppingGuideLoading=false;if(host)host.innerHTML='<p class="guideRuleLead">購物須知暫時無法載入。<button type="button" onclick="loadShoppingGuide()">重試載入</button></p>'});
+    if(host&&!host.dataset.guideLoaded){
+      host.innerHTML="<p class=\"guideRuleLead\">請依商品頁的團次規則及當次付款通知辦理。訂購／委託人須年滿 18 歲。</p><details class=\"guideDetail\" open><summary><span>01</span> 訂購申請與一般預購</summary><div><p>在購物袋核對商品、規格與數量，填寫申請資料並完成 Email 驗證。一般預購由 PL 確認可承接後提供一補通知，核對入帳後依團次安排採購。</p></div></details><details class=\"guideDetail\" open><summary><span>02</span> 限量搶購與候補</summary><div><p>標示先搶後收的團次，申請時不用付款。正式名額額滿後列入候補。以官方實際買到的品項及數量通知第一階段付款，未購得的品項不收商品款。</p></div></details><details class=\"guideDetail\" open><summary><span>03</span> 付款與核帳</summary><div><p>依當次通知提供的收款資料付款。目前可使用銀行匯款、台灣 Pay（合庫 TWQR）或中信無卡存款，依通知所列方式辦理。付款後請回網站回報，PL 核對實際入帳後更新狀態。</p></div></details><details class=\"guideDetail\" open><summary><span>04</span> 運費與二補</summary><div><p>一補為已確認的商品款。海外境內運費按同筆官方訂單實際購入件數分攤，國際運費按商品份數分攤，包材、實際稅費及台灣配送依當次規則結算。二補以實際費用為準。賣貨便 NT$38，交貨便 NT$60（到付），其他配送依通知。</p></div></details><details class=\"guideDetail\"><summary><span>05</span> 代下單、代付與轉運</summary><div><p>日本網站代下單同站同次結帳 NT$100。銀行振込、超商代付、代收轉運及韓國代付，請先提供通路、金額或期限等必要資料，待 PL 確認可承接與報價後再辦理。</p></div></details><details class=\"guideDetail\"><summary><span>06</span> 限購、特典與出貨</summary><div><p>商品庫存、限購、特典與官方出貨依實際結果。海外入庫、國際運送與台灣配送會依訂單進度更新。若遇缺貨、砍單或規格變動，PL 會聯絡確認後續。</p></div></details><details class=\"guideDetail\"><summary><span>07</span> 查單與申請撤回</summary><div><p>使用下單 Email 驗證後，可在網站查看帳款、期限、付款回報與出貨進度。付款通知前可聯絡 PL 申請撤回，後續依團次通知和實際採購進度處理。</p></div></details>";
+      host.dataset.guideLoaded='true';
+    }
   }
-
 
   function setGuideMode(mode){
     guideMode=mode==='rules'?'rules':'flow';
