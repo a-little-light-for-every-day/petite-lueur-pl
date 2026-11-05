@@ -10,7 +10,7 @@ export const STAR_TRACE_PRODUCTS = Object.freeze([
   ['71381',15455,'棒球帽造型收納包吊飾'],['71382',17727,'按鍵吊飾'],
   ['71383',10909,'掛繩套組'],['71385',3636,'隨身黏毛滾輪'],
   ['71386',79091,'厚磅連帽上衣']
-].map(([id,untaxed_krw,name])=>({id,untaxed_krw,name})));
+].map(([id,untaxed_krw,name])=>({id,untaxed_krw,tax_included_krw:{"71375":7000,"71376":18000,"71377":5000,"71378":9000,"71379":9000,"71380":65000,"71381":17000,"71382":19500,"71383":12000,"71385":4000,"71386":87000}[id],name})));
 
 const check=(v,msg)=>{if(!v)throw new Error(msg);};
 const integer=(v,msg)=>check(Number.isSafeInteger(v)&&v>=0,msg);
