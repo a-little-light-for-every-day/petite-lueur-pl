@@ -2,6 +2,7 @@ import{normalizeBenefitPreference,BENEFIT_GROUP}from './benefit-checkout.js';
 import{starTraceAdmission}from './star-trace-admission.js';
 import{applyBenefit}from './operations-benefits.js';
 import{completeLegacyOperations}from './legacy-operations-reconcile.js';
+import{settleLegacyPayment}from './legacy-payment-settlement.js';
 import{applyService}from './operations-services.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
@@ -11,7 +12,7 @@ const email=v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||''))&&!/[\r\n]/.test(
 const money=v=>{must(Number.isSafeInteger(v)&&v>=0,'金額須為非負整數');return v;};
 const positive=v=>{must(Number.isSafeInteger(v)&&v>0,'數量／金額須為正整數');return v;};
 export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
-export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
+export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)+(b.legacy_settlement?.recognized_twd||0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
 const order=(s,id)=>{const o=s.orders.find(x=>x.id===id);must(o,'找不到訂單',404);return o;};
 const invoice=(s,id)=>{const x=s.invoices.find(x=>x.id===id);must(x,'找不到帳款',404);return x;};
@@ -40,7 +41,7 @@ export function makeNotice(s,ids,kind,id,now){
 }
 function allocate(s,r,entries){
  must(Array.isArray(entries)&&entries.length>0,'請指定款項分配');
- for(const a of entries){const b=invoice(s,a.invoice_id),o=order(s,b.order_id);positive(a.amount_twd);must(open(o)&&b.finalized&&b.status!=='void'&&b.amount_twd!==null,'帳款尚未確認或已作廢');must((o.email?.trim().toLowerCase()||'order:'+o.id)===(r.customer_key||r.customer_email?.trim().toLowerCase()),'禁止跨顧客分配款項');must(b.channel!=='cod'||r.kind==='cod_settled','貨到付款必須確認平台實際撥款');must(a.amount_twd<=b.amount_twd-s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)&&a.amount_twd<=credit(s,r),'分配金額超過待收或可用餘額');s.allocations.push({id:r.id+':'+b.id+':'+s.allocations.length,receipt_id:r.id,invoice_id:b.id,amount_twd:a.amount_twd});}
+ for(const a of entries){const b=invoice(s,a.invoice_id),o=order(s,b.order_id);positive(a.amount_twd);must(open(o)&&b.finalized&&b.status!=='void'&&b.amount_twd!==null,'帳款尚未確認或已作廢');must((o.email?.trim().toLowerCase()||'order:'+o.id)===(r.customer_key||r.customer_email?.trim().toLowerCase()),'禁止跨顧客分配款項');must(b.channel!=='cod'||r.kind==='cod_settled','貨到付款必須確認平台實際撥款');must(a.amount_twd<=b.amount_twd-(b.legacy_settlement?.recognized_twd||0)-s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)&&a.amount_twd<=credit(s,r),'分配金額超過待收或可用餘額');s.allocations.push({id:r.id+':'+b.id+':'+s.allocations.length,receipt_id:r.id,invoice_id:b.id,amount_twd:a.amount_twd});}
 }
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
@@ -68,6 +69,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   changed.push(oid);result={order_id:oid,status:'review_pending',notices_created:0,invoices_created:0};break;
  }
  case 'legacy_reconcile':{result=completeLegacyOperations(s,c,{now,id});break;}
+ case 'legacy_payment_reconcile_single':{result=settleLegacyPayment(s,c,{now,id});break;}
  case 'catalog_restore_approved':{
   must(c.confirmed===true,'請確認沿用舊站已公開核准的內容');let published=0;const blocked=[];
   for(const p of s.products||[]){const x=p.source_snapshot;if(x?.published!==true||x.displayMode!=='formal')continue;
