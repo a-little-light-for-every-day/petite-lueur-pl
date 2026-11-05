@@ -1,4 +1,5 @@
 import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
+import {starTraceAdmission} from './star-trace-admission.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -118,8 +119,13 @@ export async function checkoutOperations(body,email,env){
  const requestHash=await hash(JSON.stringify(identity));const key='checkout:'+body.key;
  const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('識別碼已被其他內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
- const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
- const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
- if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
- return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,application,...(preference?{benefit_preference:{...preference,estimate:benefitEstimate(items),submitted_at:new Date().toISOString(),source:'客人驗證Email後隨訂單送出'}}:{}),first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
+ for(let attempt=0;attempt<4;attempt++){
+  const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
+  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
+  if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
+  const admission=body.group_id===BENEFIT_GROUP?starTraceAdmission(current.state,items):null;
+  try{
+   return await executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,application,...(admission?{admission}:{}),...(preference?{benefit_preference:{...preference,estimate:benefitEstimate(items),submitted_at:new Date().toISOString(),source:'客人驗證Email後隨訂單送出'}}:{}),first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
+  }catch(e){if(e.status!==409||attempt===3)throw e;}
+ }
 }
