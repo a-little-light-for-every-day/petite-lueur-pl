@@ -26,12 +26,22 @@ test('Notion can safely rebase a note-only page revision without losing existing
 test('Notion safely reconciles an already-matching canceled status but refuses conflicting statuses and prices',()=>{
  const c=context(),v=envelope(),oldEvent='ops:order:'+'b'.repeat(64);
  v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:00:00.000Z';
- const old=JSON.parse(JSON.stringify(v.projection.document));old.status='訂購申請待確認';old.order.email='owner@example.com';
+ const old=JSON.parse(JSON.stringify(v.projection.document));old.status='訂購申請待確認';old.order.email='owner@example.com';old.order.name='測試主購';
+ old.order.id='PL3-11111111-2222-3333-4444-555555555555';old.order.items=[{id:'line-1',name:'耳機',sku:'WV-PLAVE-71380',variant:'',quantity:1,unit_price_twd:890,shipping_units:5}];
  v.projection.document=JSON.parse(JSON.stringify(old));v.projection.document.status='已取消';
  const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:00:00.000Z',properties:notionPropsFromWrite(c.opsOrderProperties_(old,null,oldEvent))};
+ assert.ok(page.properties['結構化商品明細']?.rich_text?.length,'Native PL3 SKU projection must be present');
  page.properties['狀態']={select:{name:'已取消'}};
+ for(const k of ['訂購人姓名','顧客姓名'])page.properties[k]={type:'rich_text',rich_text:[]};
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[]};
  let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method)=>{if(method==='get')return page;writes++;return{id:page.id,last_edited_time:'2026-11-06T11:01:00.000Z'}};
  assert.equal(c.opsNotion_(v,{}).ok,true);assert.equal(writes,1);
+ page.properties['顧客姓名']={type:'rich_text',rich_text:[{plain_text:'人工改名'}]};
+ assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['顧客姓名']={type:'rich_text',rich_text:[]};
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[{plain_text:'人工修改SKU'}]};
+ assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[]};
  page.properties['狀態'].select.name='已向日本商店下單';assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
  page.properties['狀態'].select.name='已取消';page.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
  assert.equal(writes,1);

@@ -39,6 +39,11 @@ function opsOrderProperties_(d,current,event){const o=d.order,first=d.invoices.f
  const canonical=['訂購申請待確認','商品款待確認','申請已撤回','待第一階段付款','第一階段付款待核對','已付款／訂單正式成立','已向日本商店下單','預購等待中','日本倉庫已到貨','國際運送中','商品已抵台','配送方式待確認','等待第二次付款','第二階段付款待核對','二補逾期','等待收件資料','台灣已寄出','已完成','官方缺貨','官方砍單','已取消','退款處理中','已退款','逾期保管','物流異常','售後處理中'];const mapped={'海外倉庫已到貨':'日本倉庫已到貨','商品抵台／待二補結算':'商品已抵台','抵台／待出貨':'商品已抵台','部分已寄出':'台灣已寄出','已收款／待採購':'已付款／訂單正式成立','部分已採購':'已向日本商店下單','取消／缺貨歷史':o.source_status||'已取消'};const status=canonical.includes(d.status)?d.status:mapped[d.status]||o.source_status||'訂購申請待確認';if(canonical.includes(status))props['狀態']={select:{name:status}};
  if(current&&opsPlain_(current.properties['網站訂單識別碼']))delete props['網站訂單識別碼'];
  if(o.items.length)props['商品明細']={rich_text:opsText_(o.items.map(l=>l.name+(l.variant?'｜'+l.variant:'')+' ×'+l.quantity).join('；'))};
+ // Native PL3 orders expose independent SKU rows without replacing legacy item text.
+ if(/^PL3-[0-9a-f-]{36}$/i.test(o.id)&&o.items.length&&o.items.every(l=>String(l.sku||'').trim())){
+  const compact=o.items.map(l=>({c:l.sku,v:l.variant||'',q:l.quantity,p:l.unit_price_twd,s:l.shipping_units||0}));
+  props['結構化商品明細']={rich_text:opsText_(JSON.stringify(compact))};
+ }
  if(second&&second.finalized){props['第二次付款']={number:second.amount_twd};if(second.outstanding_twd===0)props['付款狀態']={select:{name:'第二次付款已核對'}};else if(second.outstanding_twd>0&&second.channel!=='cod')props['付款狀態']={select:{name:'等待第二次付款'}};}
  if(!props['付款狀態']&&first&&first.finalized){if(first.outstanding_twd===0)props['付款狀態']={select:{name:'第一階段已核對'}};else if(first.outstanding_twd>0&&first.channel!=='cod')props['付款狀態']={select:{name:'待第一階段付款'}};}
  const sent=d.notices.filter(n=>n.status==='sent');if(sent.length){const old=current&&current.properties&&current.properties['通知狀態']&&current.properties['通知狀態'].select&&current.properties['通知狀態'].select.name||'';const rank={'第一階段付款已通知':1,'第二階段付款已通知':2,'出貨已通知':3};let level=rank[old]||0;for(const n of sent)level=Math.max(level,n.kind==='shipping'?3:d.invoices.some(b=>(n.invoice_ids||[]).includes(b.id)&&b.phase==='second')?2:1);props['通知狀態']={select:{name:['','第一階段付款已通知','第二階段付款已通知','出貨已通知'][level]}};}
@@ -65,15 +70,21 @@ function opsNotionSafeRebase_(page,pr,nextProps){
   if(!previous.star_trace||previous.star_trace.group_id!==pr.document.star_trace.group_id)return false;
   expected=opsBenefitProperties_(previous,event);
  }else return false;
- // A status already advanced to the *same* current PL3 state is convergent;
- // never allow this exception for payment, price, fulfillment, or snapshot fields.
+ // A status already advanced to the same PL3 state is convergent. Older
+ // receiver versions omitted private name and structured SKU fields: backfill only
+ // when both old and new snapshots agree and the destination is still blank.
+ // Never allow these exceptions for payment, price, or fulfillment fields.
  return Object.keys(expected).every(k=>opsPropsMatch_(page,{[k]:expected[k]})||
-  (pr.kind==='order'&&k==='狀態'&&nextProps&&nextProps['狀態']&&opsPropsMatch_(page,{'狀態':nextProps['狀態']})));
+  (pr.kind==='order'&&k==='狀態'&&nextProps&&nextProps['狀態']&&opsPropsMatch_(page,{'狀態':nextProps['狀態']}))||
+  (pr.kind==='order'&&['訂購人姓名','顧客姓名','結構化商品明細'].includes(k)&&nextProps&&nextProps[k]&&expected[k]&&
+   !!expected[k].rich_text?.map(x=>x.text.content).join('')&&
+   expected[k].rich_text.map(x=>x.text.content).join('')===nextProps[k].rich_text.map(x=>x.text.content).join('')&&
+   !opsPlain_(page.properties&&page.properties[k])));
 }
 function opsNotion_(v,p){const pr=v.projection,ds=pr.kind==='order'?OPS_ORDER_SOURCE:pr.kind==='request'?OPS_REQUEST_SOURCE:p.benefitSource,title=pr.kind==='order'?'訂單編號':pr.kind==='request'?'許願編號':'活動識別碼',id=pr.kind==='order'?pr.document.order.id:pr.kind==='request'?pr.document.request.id:pr.document.star_trace.group_id;if(!ds)throw Error('OPS_CONFIG_MISSING');if(pr.kind!=='benefit')opsEnsureSchema_(p,ds);let current=null;
  if(pr.source_id){current=formalNotionCall_(p,'get','/pages/'+pr.source_id);if(current.parent&&current.parent.data_source_id!==ds)throw Error('OPS_NOTION_PARENT_MISMATCH');}else{const query=formalNotionCall_(p,'post','/data_sources/'+ds+'/query',{filter:{property:title,title:{equals:id}},page_size:2});if(!Array.isArray(query.results)||query.results.length>1)return{ok:false,conflict:true,error_code:'OPS_DUPLICATE_NOTION_ID'};current=query.results[0]||null;}
  const props=pr.kind==='order'?opsOrderProperties_(pr.document,current,v.event_id):pr.kind==='request'?opsRequestProperties_(pr.document,v.event_id):opsBenefitProperties_(pr.document,v.event_id);
- if(current&&opsPlain_(current.properties['PL3同步版本'])===v.event_id){if(!opsPropsMatch_(current,props))return{ok:false,conflict:true,error_code:'OPS_NOTION_MANUAL_EDIT'};return{ok:true,ack_event_id:v.event_id,destination:'notion',remote_id:current.id,remote_revision:current.last_edited_time};}
+ if(current&&opsPlain_(current.properties['PL3同步版本'])===v.event_id){const compact=props['結構化商品明細'];if(compact&&!opsPlain_(current.properties['結構化商品明細'])){const prior={...props};delete prior['結構化商品明細'];if(opsPropsMatch_(current,prior))current=formalNotionCall_(p,'patch','/pages/'+current.id,{properties:{'結構化商品明細':compact}});}if(!opsPropsMatch_(current,props))return{ok:false,conflict:true,error_code:'OPS_NOTION_MANUAL_EDIT'};return{ok:true,ack_event_id:v.event_id,destination:'notion',remote_id:current.id,remote_revision:current.last_edited_time};}
  if(current){const sameId=v.expected_remote_id&&String(v.expected_remote_id).replace(/-/g,'')===current.id.replace(/-/g,'');const sameTime=v.expected_remote_revision&&Date.parse(v.expected_remote_revision)===Date.parse(current.last_edited_time);const initialLegacy=pr.kind==='order'&&pr.source_id&&!opsPlain_(current.properties['PL3同步版本'])&&v.expected_remote_revision&&Math.floor(Date.parse(v.expected_remote_revision)/60000)===Math.floor(Date.parse(current.last_edited_time)/60000)&&opsLegacyBaselineMatches_(current,pr.document.order);if(!sameId||!(sameTime||initialLegacy||opsNotionSafeRebase_(current,pr,props)))return{ok:false,conflict:true,error_code:'OPS_NOTION_REVISION_CHANGED'};}
  else if(v.expected_remote_id||v.expected_remote_revision)return{ok:false,conflict:true,error_code:'OPS_NOTION_MISSING'};
  const saved=current?formalNotionCall_(p,'patch','/pages/'+current.id,{properties:props}):formalNotionCall_(p,'post','/pages',{parent:{type:'data_source_id',data_source_id:ds},properties:props});if(!saved.id||!saved.last_edited_time)throw Error('OPS_NOTION_ACK_INVALID');return{ok:true,ack_event_id:v.event_id,destination:'notion',remote_id:saved.id,remote_revision:saved.last_edited_time};}
