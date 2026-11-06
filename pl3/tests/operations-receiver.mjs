@@ -23,6 +23,19 @@ test('Notion can safely rebase a note-only page revision without losing existing
  page.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');assert.equal(writes,1);
  page.properties['商品款'].number--;page.properties['PL3營運快照'].rich_text[0].plain_text='{}';assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');assert.equal(writes,1);
 });
+test('Notion safely reconciles an already-matching canceled status but refuses conflicting statuses and prices',()=>{
+ const c=context(),v=envelope(),oldEvent='ops:order:'+'b'.repeat(64);
+ v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:00:00.000Z';
+ const old=JSON.parse(JSON.stringify(v.projection.document));old.status='訂購申請待確認';old.order.email='owner@example.com';
+ v.projection.document=JSON.parse(JSON.stringify(old));v.projection.document.status='已取消';
+ const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:00:00.000Z',properties:notionPropsFromWrite(c.opsOrderProperties_(old,null,oldEvent))};
+ page.properties['狀態']={select:{name:'已取消'}};
+ let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method)=>{if(method==='get')return page;writes++;return{id:page.id,last_edited_time:'2026-11-06T11:01:00.000Z'}};
+ assert.equal(c.opsNotion_(v,{}).ok,true);assert.equal(writes,1);
+ page.properties['狀態'].select.name='已向日本商店下單';assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['狀態'].select.name='已取消';page.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ assert.equal(writes,1);
+});
 test('Notion rejects changed page revisions with no valid prior PL3 snapshot',()=>{
  const c=context(),v=envelope();v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:10:00Z';
  const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:17:00Z',properties:{'PL3同步版本':{type:'rich_text',rich_text:[]},'PL3營運快照':{type:'rich_text',rich_text:[]}}};

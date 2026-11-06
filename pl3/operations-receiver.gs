@@ -49,7 +49,7 @@ function opsPropsMatch_(page,expected){const props=page.properties||{};return Ob
 // A human note or page-body edit advances Notion's last_edited_time without
 // changing any PL3-managed fields. Rebase only when the previous PL3 snapshot
 // still reproduces every field previously written by the receiver.
-function opsNotionSafeRebase_(page,pr){
+function opsNotionSafeRebase_(page,pr,nextProps){
  const event=opsPlain_(page.properties&&page.properties['PL3同步版本']);
  if(!new RegExp('^ops:'+pr.kind+':[a-f0-9]{64}$').test(event))return false;
  let previous;try{previous=JSON.parse(opsPlain_(page.properties['PL3營運快照']));}catch(e){return false;}
@@ -65,13 +65,16 @@ function opsNotionSafeRebase_(page,pr){
   if(!previous.star_trace||previous.star_trace.group_id!==pr.document.star_trace.group_id)return false;
   expected=opsBenefitProperties_(previous,event);
  }else return false;
- return opsPropsMatch_(page,expected);
+ // A status already advanced to the *same* current PL3 state is convergent;
+ // never allow this exception for payment, price, fulfillment, or snapshot fields.
+ return Object.keys(expected).every(k=>opsPropsMatch_(page,{[k]:expected[k]})||
+  (pr.kind==='order'&&k==='狀態'&&nextProps&&nextProps['狀態']&&opsPropsMatch_(page,{'狀態':nextProps['狀態']})));
 }
 function opsNotion_(v,p){const pr=v.projection,ds=pr.kind==='order'?OPS_ORDER_SOURCE:pr.kind==='request'?OPS_REQUEST_SOURCE:p.benefitSource,title=pr.kind==='order'?'訂單編號':pr.kind==='request'?'許願編號':'活動識別碼',id=pr.kind==='order'?pr.document.order.id:pr.kind==='request'?pr.document.request.id:pr.document.star_trace.group_id;if(!ds)throw Error('OPS_CONFIG_MISSING');if(pr.kind!=='benefit')opsEnsureSchema_(p,ds);let current=null;
  if(pr.source_id){current=formalNotionCall_(p,'get','/pages/'+pr.source_id);if(current.parent&&current.parent.data_source_id!==ds)throw Error('OPS_NOTION_PARENT_MISMATCH');}else{const query=formalNotionCall_(p,'post','/data_sources/'+ds+'/query',{filter:{property:title,title:{equals:id}},page_size:2});if(!Array.isArray(query.results)||query.results.length>1)return{ok:false,conflict:true,error_code:'OPS_DUPLICATE_NOTION_ID'};current=query.results[0]||null;}
  const props=pr.kind==='order'?opsOrderProperties_(pr.document,current,v.event_id):pr.kind==='request'?opsRequestProperties_(pr.document,v.event_id):opsBenefitProperties_(pr.document,v.event_id);
  if(current&&opsPlain_(current.properties['PL3同步版本'])===v.event_id){if(!opsPropsMatch_(current,props))return{ok:false,conflict:true,error_code:'OPS_NOTION_MANUAL_EDIT'};return{ok:true,ack_event_id:v.event_id,destination:'notion',remote_id:current.id,remote_revision:current.last_edited_time};}
- if(current){const sameId=v.expected_remote_id&&String(v.expected_remote_id).replace(/-/g,'')===current.id.replace(/-/g,'');const sameTime=v.expected_remote_revision&&Date.parse(v.expected_remote_revision)===Date.parse(current.last_edited_time);const initialLegacy=pr.kind==='order'&&pr.source_id&&!opsPlain_(current.properties['PL3同步版本'])&&v.expected_remote_revision&&Math.floor(Date.parse(v.expected_remote_revision)/60000)===Math.floor(Date.parse(current.last_edited_time)/60000)&&opsLegacyBaselineMatches_(current,pr.document.order);if(!sameId||!(sameTime||initialLegacy||opsNotionSafeRebase_(current,pr)))return{ok:false,conflict:true,error_code:'OPS_NOTION_REVISION_CHANGED'};}
+ if(current){const sameId=v.expected_remote_id&&String(v.expected_remote_id).replace(/-/g,'')===current.id.replace(/-/g,'');const sameTime=v.expected_remote_revision&&Date.parse(v.expected_remote_revision)===Date.parse(current.last_edited_time);const initialLegacy=pr.kind==='order'&&pr.source_id&&!opsPlain_(current.properties['PL3同步版本'])&&v.expected_remote_revision&&Math.floor(Date.parse(v.expected_remote_revision)/60000)===Math.floor(Date.parse(current.last_edited_time)/60000)&&opsLegacyBaselineMatches_(current,pr.document.order);if(!sameId||!(sameTime||initialLegacy||opsNotionSafeRebase_(current,pr,props)))return{ok:false,conflict:true,error_code:'OPS_NOTION_REVISION_CHANGED'};}
  else if(v.expected_remote_id||v.expected_remote_revision)return{ok:false,conflict:true,error_code:'OPS_NOTION_MISSING'};
  const saved=current?formalNotionCall_(p,'patch','/pages/'+current.id,{properties:props}):formalNotionCall_(p,'post','/pages',{parent:{type:'data_source_id',data_source_id:ds},properties:props});if(!saved.id||!saved.last_edited_time)throw Error('OPS_NOTION_ACK_INVALID');return{ok:true,ack_event_id:v.event_id,destination:'notion',remote_id:saved.id,remote_revision:saved.last_edited_time};}
 function operationsDoPost_(raw){try{const p=opsConfig_(),v=opsVerify_(raw,p);if(p.qa&&(v.projection.kind!=='benefit'||!v.projection.document.star_trace.group_id.startsWith('PL3-QA-')))throw Error('OPS_QA_SCOPE_INVALID');const lock=LockService.getScriptLock();if(!lock.tryLock(20000))throw Error('OPS_BUSY');try{return opsResponse_(v.destination==='sheets'?opsSheets_(v,p):opsNotion_(v,p));}finally{lock.releaseLock();}}catch(e){return opsResponse_({ok:false,conflict:false,error_code:/^OPS_[A-Z_]+$/.test(String(e.message))?e.message:'OPS_'+formalErrorCode_(e)});}}
