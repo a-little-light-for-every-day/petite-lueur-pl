@@ -49,7 +49,7 @@ export function makeNotice(s,ids,kind,id,now){
  const deadlines=[...new Set(bills.map(x=>x.due_at).filter(Boolean))];
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
- const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n付款方式提供銀行匯款、台灣 Pay及中國信託無卡存款，請回覆索取當次收款資料。完成後請提供轉帳日期、金額及末五碼，以利核對；實際以銀行入帳為準。\n\n訂單查詢：https://pl3-staging-api.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
+ const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託無卡存款及台灣 Pay；請先向官方確認當次收款資料。付款完成後，請在下方訂單查詢頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://pl3-staging-api.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
  n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 function allocate(s,r,entries){
@@ -214,6 +214,20 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'invoice_confirm':{
   const b=invoice(s,c.invoice_id);must(b.phase==='first'&&!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'此帳款請使用既有通知／款項調整流程',409);must(c.confirmed===true&&text(c.evidence),'請確認報價與來源');positive(c.amount_twd);const invoicedOrder=order(s,b.order_id),expected=invoicedOrder.group_id===BENEFIT_GROUP?invoicedOrder.items.reduce((n,l)=>n+l.purchased*l.unit_price_twd,0):invoicedOrder.goods_twd;must(c.amount_twd===expected,'金額須與實際採購商品款一致');b.amount_twd=c.amount_twd;b.finalized=true;b.evidence=text(c.evidence,2000);changed.push(b.order_id);break;
  }
+ case 'first_invoice_issue':{
+  const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
+  must(open(o)&&g,'訂單無法建立商品款帳款');
+  must(c.confirmed===true&&text(c.evidence),'請確認官方採購證據與商品款');
+  must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
+  must(o.items.length>0&&o.items.every(l=>l.purchased===l.quantity&&l.quantity>0),'須所有品項已實際購得，未購得品項請勿提前請款');
+  must(o.items.every(l=>(s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0)>=l.quantity),'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
+  const expected=o.items.reduce((sum,l)=>sum+l.quantity*l.unit_price_twd,0);
+  positive(expected);must(c.amount_twd===expected,'金額須與實際購得商品款一致');
+  const due=text(c.due_at,60)||g.payment_due_at;
+  must(due&&Number.isFinite(Date.parse(due)),'請確認付款期限');
+  const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now};
+  s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
+ }
  case 'owner_test_notice':{must(!s.notices.some(n=>n.kind==='owner-test'&&['draft','queued','sending','unknown'].includes(n.status)),'已有未完成的主購驗收信，請先檢視該草稿');const n={id,kind:'owner-test',to:'petitelueur.pl@gmail.com',subject:'【Petite Lueur PL】3.0 寄信驗收',body:'您好：\n\n這是 PL 3.0 官方信箱寄送測試，僅供主購驗收。未建立客戶帳款、未要求付款，也未發送任何客戶通知。\n\nPetite Lueur PL',attachments:[],order_ids:[],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);result={notice_id:n.id};break;}
  case 'notice_draft':{const n=makeNotice(s,c.invoice_ids,c.kind==='reminder'?'reminder':'payment',id,now);result={notice_id:n.id};break;}
  case 'notice_edit':{
@@ -225,10 +239,22 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'notice_cancel':{const n=s.notices.find(x=>x.id===c.notice_id);must(n&&['draft','queued','failed'].includes(n.status),'通知不可撤銷',409);n.status='void';break;}
  case 'payment_report':{
-  const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);positive(c.amount_twd);must(['銀行匯款','台灣 Pay','中國信託無卡存款'].includes(c.method),'付款方式無效');must(!c.last5||/^\d{5}$/.test(c.last5),'末五碼格式錯誤');s.reports=s.reports||[];must(!s.reports.some(r=>r.order_id===o.id&&r.status==='pending'&&r.amount_twd===c.amount_twd&&r.last5===(c.last5||'')),'相同回報正在核對，請勿重複',409);s.reports.push({id,order_id:o.id,customer_email:o.email,amount_twd:c.amount_twd,method:c.method,last5:c.last5||'',note:text(c.note,1000),status:'pending',created_at:now});result={report_id:id};break;
+  const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);
+  positive(c.amount_twd);
+  must(['台新銀行','台灣 Pay','中國信託無卡存款','銀行匯款'].includes(c.method),'付款方式無效');
+  must(!c.last5||/^\d{5}$/.test(c.last5),'末五碼格式錯誤');
+  const reportPhase=c.phase==null||c.phase===''?null:c.phase;
+  must(reportPhase===null||['first','second'].includes(reportPhase),'付款階段無效');
+  const paidAt=c.paid_at==null||c.paid_at===''?null:text(c.paid_at,60);
+  must(!paidAt||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(paidAt)&&Number.isFinite(Date.parse(paidAt)),'請填有效付款日期與時間');
+  s.reports=s.reports||[];
+  must(!s.reports.some(r=>r.order_id===o.id&&r.status==='pending'&&r.amount_twd===c.amount_twd&&r.last5===(c.last5||'')&&(r.phase??null)===reportPhase&&(!paidAt||!r.paid_at||r.paid_at===paidAt)),'相同回報正在核對，請勿重複',409);
+  s.reports.push({id,order_id:o.id,customer_email:o.email,amount_twd:c.amount_twd,method:c.method,last5:c.last5||'',phase:reportPhase,paid_at:paidAt,note:text(c.note,1000),status:'pending',created_at:now});
+  result={report_id:id,status:'pending'};break;
  }
  case 'receipt_confirm':{
   must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');must(!s.receipts.some(r=>r.transaction_id===text(c.transaction_id)),'此交易已入帳，請勿重複',409);
+  if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.status==='pending','此回報已核對或不存在',409);must(report.customer_email?.toLowerCase()===c.customer_email?.toLowerCase()&&report.amount_twd===c.amount_twd,'付款回報顧客或金額與入帳不符');must(Array.isArray(c.allocations)&&c.allocations.every(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);return b?.order_id===report.order_id&&(!report.phase||b.phase===report.phase);}), '付款回報與所選客單或付款階段不符');}
   const r={id,transaction_id:text(c.transaction_id),customer_email:email(c.customer_email)?c.customer_email.trim().toLowerCase():null,customer_key:email(c.customer_email)?c.customer_email.trim().toLowerCase():'order:'+codOrder.id,customer_order_id:codOrder?.id||null,amount_twd:c.amount_twd,kind:c.kind,evidence:text(c.evidence,2000),received_at:c.received_at||now};s.receipts.push(r);allocate(s,r,c.allocations);changed.push(...c.allocations.map(a=>invoice(s,a.invoice_id).order_id));if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.customer_email===r.customer_email,'付款回報歸屬不符');report.status='confirmed';report.receipt_id=r.id;}result={receipt_id:r.id,credit_twd:credit(s,r)};break;
  }
  case 'receipt_date_correct':{
