@@ -11,6 +11,19 @@ const text=(v,n=300)=>String(v??'').trim().slice(0,n);
 const email=v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||''))&&!/[\r\n]/.test(v);
 const money=v=>{must(Number.isSafeInteger(v)&&v>=0,'金額須為非負整數');return v;};
 const positive=v=>{must(Number.isSafeInteger(v)&&v>0,'數量／金額須為正整數');return v;};
+const purchaseItemKey=x=>String(x.order_id)+'\u0000'+String(x.item_id);
+function validatePurchaseItems(s,items,advance,already=[]){
+ must(Array.isArray(items)&&items.length>0&&items.length<=100,'請指定實購品項');
+ const seen=new Set(already.map(purchaseItemKey));
+ for(const x of items){
+  const key=purchaseItemKey(x);must(!seen.has(key),'同一品項已登錄至該官方訂單，請勿重複分配',409);seen.add(key);
+  const o=order(s,x.order_id),l=o.items.find(v=>v.id===x.item_id);
+  must(open(o)&&l,'找不到有效品項');must(!['fee','service','forwarding'].includes(l.fulfillment_kind),'服務、手續費與轉運品不能登錄實物採購');
+  positive(x.quantity);must(!l.hold||l.hold.released_at,'品項延後條件尚未解除');
+  must(firstPaid(s,o)||(advance?.approved===true&&text(advance.reason)),'一補未清償；如已核准代墊須明確登錄原因');
+  must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;
+ }
+}
 export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
 export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)+(b.legacy_settlement?.recognized_twd||0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
@@ -243,9 +256,21 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(text(c.official_order)&&text(c.shop)&&text(c.evidence),'請填官方訂單、通路與證據');must(!/animate|アニメイト/i.test(c.shop),'此通路不列為PL商業代購採購通路');must(['JPY','KRW','TWD'].includes(c.currency),'幣別無效');money(c.original_amount);money(c.actual_twd);must(Array.isArray(c.items)&&c.items.length>0,'請指定實購品項');
   must(!s.purchases.some(p=>p.shop===text(c.shop)&&p.official_order===text(c.official_order)),'官方訂單已登錄，請勿重複',409);
   if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
-  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(v=>v.id===x.item_id);must(open(o)&&l,'找不到有效品項');must(!['fee','service','forwarding'].includes(l.fulfillment_kind),'服務、手續費與轉運品不能登錄實物採購');positive(x.quantity);must(!l.hold||l.hold.released_at,'品項延後條件尚未解除');must(firstPaid(s,o)||(c.advance_approved===true&&text(c.advance_reason)),'一補未清償；如已核准代墊須明確登錄原因');must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;}
+  validatePurchaseItems(s,c.items,{approved:c.advance_approved,reason:c.advance_reason});
   if(c.actual_twd)s.config.card_available_twd-=c.actual_twd;
-  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,items:c.items,created_at:now});break;
+  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,items:c.items.map(x=>({...x})),created_at:now});result={purchase_id:id,allocated_items:c.items.length};break;
+ }
+ case 'purchase_allocate':{
+  const p=s.purchases.find(x=>x.id===c.purchase_id);must(p,'找不到既有官方訂單',404);
+  must(c.confirmed===true&&text(c.evidence),'請確認官方訂單證明及追加分配依據');
+  must(c.expected_original_amount===p.original_amount,'官方訂單金額已變動，請重新整理核對',409);
+  money(c.original_amount);must(c.original_amount>=p.original_amount,'官方訂單總額不得在追加分配時調低');
+  validatePurchaseItems(s,c.items,{approved:c.advance_approved,reason:c.advance_reason},p.items);
+  const before=p.original_amount;p.items.push(...c.items.map(x=>({...x})));
+  p.original_amount=c.original_amount;
+  p.allocation_history=p.allocation_history||[];
+  p.allocation_history.push({id,at:now,evidence:text(c.evidence,2000),items:c.items.map(x=>({...x})),previous_original_amount:before,original_amount:p.original_amount});
+  result={purchase_id:p.id,official_order:p.official_order,allocated_items:c.items.length,official_order_total_original:p.original_amount,card_charge_added_twd:0};break;
  }
  case 'movement_record':{
   const stages=['purchased','overseas','transit','taiwan','shipped','delivered'];must(['overseas','transit','taiwan','delivered'].includes(c.stage),'此階段請使用專用出貨操作');must(text(c.evidence),'請填物流／入庫證據');must(Array.isArray(c.items)&&c.items.length>0,'請指定品項');
