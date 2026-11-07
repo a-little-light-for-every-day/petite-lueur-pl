@@ -67,7 +67,7 @@ export async function importOperations(body,actor,env){
 }
 export async function persistMailResult(env,noticeId,status,fields={}){
  // Mail result is merged into the current aggregate with CAS, so concurrent business edits survive.
- for(let attempt=0;attempt<4;attempt++){const cur=await loadOperations(env),before=structuredClone(cur.state),n=cur.state.notices.find(x=>x.id===noticeId);if(!n)return;if(n.status==='void')return;Object.assign(n,{status,...fields});if(status==='sent')for(const bid of n.invoice_ids){const b=cur.state.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
+ for(let attempt=0;attempt<4;attempt++){const cur=await loadOperations(env),before=structuredClone(cur.state),n=cur.state.notices.find(x=>x.id===noticeId);if(!n)return;if(n.status==='void')return;Object.assign(n,{status,...fields});if(status==='sent'&&['payment','reminder'].includes(n.kind))for(const bid of n.invoice_ids){const b=cur.state.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
  const key='mail-result:'+crypto.randomUUID();try{await commit(env,{...cur,state:before},cur.state,{key,type:'mail.result',requestHash:await hash(JSON.stringify([noticeId,status,fields])),actor:'system:mail-delivery',result:{notice_id:noticeId,status}});return;}catch(e){if(e.status!==409)throw e;}}
  // Delivery row is authoritative even if business view was busy; never resend to repair this.
 }
