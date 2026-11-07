@@ -194,7 +194,9 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'group_save':{
   const g=s.groups.find(x=>x.id===c.id);must(text(c.title),'請輸入團次名稱');if(c.auto_close)must(c.deadline&&Number.isFinite(Date.parse(c.deadline))&&c.payment_due_at&&Date.parse(c.payment_due_at)>Date.parse(c.deadline),'自動結單須設定有效截止與付款期限');
+  if((g?.id||c.id)===BENEFIT_GROUP&&c.auto_close)must(false,'STAR TRACE 須先核實二販結果再由主購結案，不支援到期自動產生一補',409);
   if((g?.id||c.id)===BENEFIT_GROUP&&c.status==='closed')must(g?.sale_phase==='finished','搶購團應先核實一販與二販結果，不可提前標記結單',409);
+  if((g?.id||c.id)===BENEFIT_GROUP&&c.status==='closed'&&g?.status!=='closed')must(false,'請使用「結單／產生一補草稿」完成 STAR TRACE 結案；不可從編輯團次直接跳過帳款核對',409);
   if(c.create_only)must(!g,'原團次 ID 已存在，禁止覆寫；請使用編輯團次',409);
   const data={id:g?.id||text(c.id,160)||id,title:text(c.title),deadline:c.deadline||null,payment_due_at:c.payment_due_at||null,source_url:text(c.source_url,2000),auto_close:c.auto_close===true,status:['open','closed','draft','cancelled'].includes(c.status)?c.status:g?.status||'open'};
   if(g)Object.assign(g,data);else s.groups.push(data);result={group_id:data.id};break;
