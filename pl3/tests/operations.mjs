@@ -13,6 +13,8 @@ test('confirmed preorder creates first-stage bill while group stays open, withou
  const result=f.go(c);assert.equal(result.amount_twd,890);assert.equal(f.state.groups[0].status,'open');assert.equal(f.state.invoices[0].due_at,c.due_at);assert.equal(f.state.notices.length,0);
  assert.throws(()=>f.go(c),/已有一補帳款/);
  f.go({type:'notice_draft',invoice_ids:[result.invoice_id]});assert.equal(f.state.notices.length,1);assert.equal(f.state.notices[0].status,'draft');
+ assert.match(f.state.notices[0].body,/付款期限：2026\/11\/8 20:00（台灣時間）/);
+ assert.doesNotMatch(f.state.notices[0].body,/2026-11-08T12:00:00/);
 });
 test('preorder billing rejects unreviewed, stale, mismatched, and previously purchased orders',()=>{
  const c={type:'first_invoice_preorder_issue',order_id:'ORDER-A',amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'官方已開放預購'};
