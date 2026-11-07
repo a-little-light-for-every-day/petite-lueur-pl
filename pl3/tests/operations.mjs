@@ -8,6 +8,19 @@ function fixture(){let s=newOperations();let n=0;const go=c=>{const r=applyOpera
 function dbEnv(){const db=new DatabaseSync(':memory:');function prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return db.prepare(sql).get(...args)||null},async all(){return{results:db.prepare(sql).all(...args)}},async run(){const r=db.prepare(sql).run(...args);return{meta:{changes:Number(r.changes)}}}};return q}
 return{DB:{prepare,async exec(sql){db.exec(sql)},async batch(stmts){db.exec('BEGIN');try{const out=[];for(const q of stmts)out.push(await q.run());db.exec('COMMIT');return out}catch(e){db.exec('ROLLBACK');throw e}}},db,PL3_OPS_MAIL_ENABLED:'true'};}
 test('group closing creates one bill and draft, repeated close never duplicates',()=>{const f=fixture();f.go({type:'close_group',group_id:f.g});f.go({type:'close_group',group_id:f.g});assert.equal(f.state.invoices.length,1);assert.equal(f.state.notices.length,1);assert.equal(f.state.notices[0].status,'draft');assert.match(f.state.notices[0].body,/NT\$890/);assert.equal(f.state.invoices[0].notified,false)});
+test('confirmed preorder creates first-stage bill while group stays open, without sending notice',()=>{
+ const f=fixture();const c={type:'first_invoice_preorder_issue',order_id:f.o,amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'官方開放預購與客單報價已核對'};
+ const result=f.go(c);assert.equal(result.amount_twd,890);assert.equal(f.state.groups[0].status,'open');assert.equal(f.state.invoices[0].due_at,c.due_at);assert.equal(f.state.notices.length,0);
+ assert.throws(()=>f.go(c),/已有一補帳款/);
+ f.go({type:'notice_draft',invoice_ids:[result.invoice_id]});assert.equal(f.state.notices.length,1);assert.equal(f.state.notices[0].status,'draft');
+});
+test('preorder billing rejects unreviewed, stale, mismatched, and previously purchased orders',()=>{
+ const c={type:'first_invoice_preorder_issue',order_id:'ORDER-A',amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'官方已開放預購'};
+ let f=fixture();assert.throws(()=>f.go({...c,amount_twd:240}),/商品款一致/);
+ assert.throws(()=>f.go({...c,due_at:'2026-11-03T00:00:00Z'}),/未來/);
+ f.state.orders[0].status='review_pending';assert.throws(()=>f.go(c),/已確認/);
+ f=fixture();f.state.orders[0].items[0].purchased=1;assert.throws(()=>f.go(c),/實購紀錄/);
+});
 test('missing email blocks one notice without blocking valid orders',()=>{const f=fixture();const s=structuredClone(f.state);s.orders.push({...s.orders[0],id:'B',email:''});const r=applyOperation(s,{type:'close_group',group_id:f.g},{id:'close',now:NOW});assert.equal(r.result.drafts.length,1);assert.equal(r.result.blocked.length,1);assert.equal(r.state.invoices.length,2)});
 test('notice approval binds full contents and current version',()=>{const f=fixture();f.go({type:'close_group',group_id:f.g});let n=f.state.notices[0];assert.throws(()=>f.go({type:'notice_approve',notice_id:n.id,version:n.version,confirmed:true,content:'forged'}),/完整/);const prior=structuredClone(n);f.go({type:'notice_edit',notice_id:n.id,subject:n.subject,body:n.body+'\n請確認。'});assert.throws(()=>f.go({type:'notice_approve',notice_id:n.id,version:prior.version,confirmed:true,content:noticeContent(prior)}),/版本/);n=f.state.notices[0];f.go({type:'notice_approve',notice_id:n.id,version:n.version,confirmed:true,content:noticeContent(n)});assert.equal(f.state.notices[0].status,'queued')});
 test('payment report cannot settle a bill; authenticated email cannot report another order',()=>{const f=fixture();f.go({type:'close_group',group_id:f.g});f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:890,method:'銀行匯款'});assert.equal(balance(f.state,f.state.invoices[0]),890);assert.equal(f.state.reports[0].status,'pending');assert.throws(()=>f.go({type:'payment_report',order_id:f.o,authenticated_email:'other@example.com',amount_twd:890,method:'銀行匯款'}),/他人/)});
