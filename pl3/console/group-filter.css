@@ -1,0 +1,7 @@
+.group-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid #dfd5dc;border-radius:10px;padding:12px 16px;margin:0 0 14px}
+.group-toolbar label{font-weight:650;color:#715164;white-space:nowrap}
+.group-toolbar select{flex:1;min-width:220px;max-width:740px;min-height:44px;border:1px solid #cbbdc5;border-radius:8px;padding:8px 12px;color:#343c49;background:#fff}
+.group-toolbar-count{font-size:12px;color:#6a7380}
+.group-toolbar .quiet{margin-left:auto}
+.group-scope-note{margin:0 0 15px;border-left:3px solid #c8aaba;color:#765f72;background:#f7f1f5;padding:10px 12px;font-size:12px}
+@media(max-width:760px){.group-toolbar{align-items:stretch;gap:8px;padding:12px}.group-toolbar label{width:100%}.group-toolbar select{min-width:0;max-width:none;width:100%;flex-basis:100%}.group-toolbar .quiet{margin-left:0}}
