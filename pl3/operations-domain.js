@@ -35,7 +35,10 @@ const order=(s,id)=>{const o=s.orders.find(x=>x.id===id);must(o,'找不到訂單
 const invoice=(s,id)=>{const x=s.invoices.find(x=>x.id===id);must(x,'找不到帳款',404);return x;};
 const open=o=>!['cancelled','excluded','completed','waitlisted','review_pending'].includes(o.status);
 const firstPaid=(s,o)=>{const b=s.invoices.find(x=>x.order_id===o.id&&x.phase==='first');return b&&b.finalized&&balance(s,b)===0;};
-const noticesChanged=(s,ids)=>{for(const n of s.notices)if(!['sent','sending','unknown'].includes(n.status)&&n.order_ids.some(id=>ids.includes(id)))n.status='void';};
+const noticesChanged=(s,ids)=>{for(const n of s.notices)if(!['sent','sending','unknown'].includes(n.status)&&n.order_ids.some(id=>ids.includes(id))){
+ if(n.kind==='first-payment-confirmed'&&n.dependency===noticeDependency(s,n))continue;
+ n.status='void';
+}};
 export function noticeDependency(s,n){return JSON.stringify({orders:n.order_ids.map(id=>{const o=order(s,id);return [id,o.email,o.status,o.name];}),invoices:n.invoice_ids.map(id=>{const b=invoice(s,id);return [id,b.amount_twd,b.finalized,b.channel,b.due_at,b.status,balance(s,b)];})});}
 export function noticeContent(n){return JSON.stringify([n.to,n.subject,n.body,n.attachments||[],n.dependency]);}
 export function makeNotice(s,ids,kind,id,now){
@@ -54,6 +57,21 @@ export function makeNotice(s,ids,kind,id,now){
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
  const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託無卡存款及台灣 Pay。請至下方查單頁驗證訂購 Email，選擇銀行匯款或中國信託無卡存款後，即可查看當次付款帳號；台灣 Pay 請洽官方確認收款資訊。付款完成後，請在同頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
+ n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
+}
+// A bank-confirmed, fully allocated invoice creates a REVIEW DRAFT only.
+// The immutable invoice identity is the deduplication key, including voided drafts;
+// a voided acknowledgement must be explicitly handled by the owner, not auto-regenerated.
+function makePaidConfirmationDraft(s,b,id,now){
+ if(!b||b.phase!=='first'||!b.finalized||b.status==='void'||b.amount_twd===null||balance(s,b)!==0)return null;
+ const o=order(s,b.order_id);
+ if(!open(o)||!email(o.email)||b.channel==='cod')return null;
+ const existing=s.notices.find(n=>n.kind==='first-payment-confirmed'&&n.invoice_ids.includes(b.id));
+ if(existing)return existing;
+ const n={id,kind:'first-payment-confirmed',to:o.email,
+  subject:'【Petite Lueur PL】第一階段款項已確認入帳｜'+o.id,
+  body:`您好：\n\n已確認收到您的第一階段商品款，款項核對完成。\n\n訂單編號：${o.id}\n訂購商品：\n${o.items.map(l=>'・'+l.name+(l.variant?'｜'+l.variant:'')+' ×'+l.quantity).join('\n')}\n第一階段已收款：NT$${b.amount_twd.toLocaleString('en-US')}\n第一階段待收款：NT$0\n\n後續海外及國際運費、包材與其他實際分攤費用，會於第二階段另行通知。訂單與付款紀錄可至 https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account 查詢。\n\nPetite Lueur PL`,
+  attachments:[],order_ids:[o.id],invoice_ids:[b.id],status:'draft',version:1,created_at:now};
  n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 function allocate(s,r,entries){
@@ -276,6 +294,14 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.status==='pending','此回報已核對或不存在',409);must(report.customer_email?.toLowerCase()===c.customer_email?.toLowerCase()&&report.amount_twd===c.amount_twd,'付款回報顧客或金額與入帳不符');must(Array.isArray(c.allocations)&&c.allocations.every(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);return b?.order_id===report.order_id&&(!report.phase||b.phase===report.phase);}), '付款回報與所選客單或付款階段不符');}
   const r={id,transaction_id:text(c.transaction_id),customer_email:email(c.customer_email)?c.customer_email.trim().toLowerCase():null,customer_key:email(c.customer_email)?c.customer_email.trim().toLowerCase():'order:'+codOrder.id,customer_order_id:codOrder?.id||null,amount_twd:c.amount_twd,kind:c.kind,evidence:text(c.evidence,2000),received_at:c.received_at||now};s.receipts.push(r);allocate(s,r,c.allocations);changed.push(...c.allocations.map(a=>invoice(s,a.invoice_id).order_id));if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.customer_email===r.customer_email,'付款回報歸屬不符');report.status='confirmed';report.receipt_id=r.id;}result={receipt_id:r.id,credit_twd:credit(s,r)};break;
  }
+ case 'first_payment_confirmation_backfill':{
+  must(c.confirmed===true&&text(c.evidence,1000),'請提供人工核對依據');
+  const b=invoice(s,c.invoice_id);must(b.phase==='first'&&b.finalized&&balance(s,b)===0,'一補尚未確認清償');
+  must(s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'缺少實際核帳分配，不能補建確認信');
+  const n=makePaidConfirmationDraft(s,b,id,now);must(n,'此單不符合付款確認通知條件');
+  must(n.id===id&&n.status==='draft','此單已有付款確認通知紀錄，請先核對，不得重複建立');
+  result={notice_id:n.id,created:n.id===id};break;
+ }
  case 'receipt_date_correct':{
   const r=s.receipts.find(x=>x.id===c.receipt_id);
   must(r&&c.confirmed===true&&text(c.evidence),'請確認原收款與日期更正證據');
@@ -351,6 +377,17 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  default:throw failure('不支援的操作');
  }
  if(changed.length)noticesChanged(s,changed);
+ // Create the confirmation AFTER invalidating stale payment requests; otherwise
+ // noticesChanged would void the fresh draft in the same operation.
+ if(['receipt_confirm','credit_allocate'].includes(c.type)){
+  const drafts=[];
+  for(const bid of new Set((c.allocations||[]).map(a=>a.invoice_id))){
+   const b=invoice(s,bid);
+   const n=makePaidConfirmationDraft(s,b,id+':paid:'+bid,now);
+   if(n?.created_at===now&&n.id===id+':paid:'+bid)drafts.push(n.id);
+  }
+  result={...result,payment_confirmation_drafts:drafts};
+ }
  s.history.push({id,type:c.type,at:now,result});if(s.history.length>500)s.history=s.history.slice(-500);
  return {state:s,result};
 }

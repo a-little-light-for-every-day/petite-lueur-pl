@@ -9,7 +9,7 @@ const email = "pl3-test@example.com";
 
 function authFor(address = email) {
   const payload = Buffer.from(JSON.stringify({
-    email: address, exp: Math.floor(Date.now() / 1000) + 3600
+    email: address, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600
   })).toString("base64url");
   return "Bearer " + payload + "." +
     createHmac("sha256", SECRET).update(payload).digest("base64url");

@@ -1,2 +1,84 @@
-import React,{useState,useEffect,useRef}from'react';
-export function SyncPanel({api}){const[state,S]=useState(null),[msg,M]=useState(''),[busy,B]=useState(false),stop=useRef(false);const load=async()=>{const r=await api('/api/admin/ops/sync-status');S(r);M('');return r};useEffect(()=>{load().catch(e=>M(e.message));return()=>{stop.current=true}},[]);async function drain(){B(true);stop.current=false;try{for(let i=0;i<100&&!stop.current;i++){const s=await load();if(!s.enabled){M('同步設定尚未啟用，資料維持在營運資料庫，不會宣稱已同步。');break;}if(!s.pending&&!s.retry&&!s.processing){M(s.blocked?'目的地權限不足，已停止重送；已送達紀錄保留。':s.conflict?'其餘已送達；衝突已停止覆寫，請核對差異。':'Notion與試算表均已確認收件。');break;}const r=await api('/api/admin/ops/sync-drain',{});if(!r.ok)throw Error(r.error);await load();if(!r.handled){M('等待其他工作完成或重試時間；可稍後繼續。');break;}}}catch(e){M(e.message)}finally{B(false)}}return <section className="panel"><h2>Notion／試算表營運同步</h2><p>一補、二補、實收、分配、退款及履約分開記錄；原有人工修改衝突會停止覆寫。</p>{state&&<><p>{state.enabled?'同步已啟用':'同步尚未啟用'} · {state.records}筆客單／詢價 · 來源版本{state.source_version}</p><div className="statrow">待送{state.pending} · 已確認{state.delivered} · 重試{state.retry} · 傳送中{state.processing} · 衝突{state.conflict} · 權限阻擋{state.blocked||0}</div>{(state.failures||[]).map((c,i)=><p className="error" key={'f'+i}>{c.record_id} · {c.destination} · {c.error_code}{c.status==='blocked'?'（待目的地授權）':''}</p>)}{state.conflicts.map((c,i)=><p className="error" key={i}>{c.record_id} · {c.destination} · {c.error_code}</p>)}</>}<div className="actions">{state?.conflicts?.some(c=>c.destination==='sheets'&&c.error_code==='OPS_SHEET_MANUAL_EDIT')&&<button className="secondary" disabled={busy} onClick={async()=>{try{await api('/api/admin/ops/sync-recheck-sheet-format',{});await load();M('已重新核對空白金額格式；原始文件與雜湊仍須一致，實際人工變更不會被覆寫。')}catch(e){M(e.message)}}}>重新核對試算表空白金額格式</button>}{state?.conflicts?.some(c=>c.error_code==='OPS_NOTION_REVISION_CHANGED')&&<button className="secondary" disabled={busy} onClick={async()=>{try{await api('/api/admin/ops/sync-recheck-revisions',{});await load();M('已排程重新檢查來源時間與原始欄位；內容差異仍會停止覆寫。')}catch(e){M(e.message)}}}>重新檢查來源版本差異</button>}{state?.blocked>0&&<button className="secondary" disabled={busy} onClick={async()=>{try{await api('/api/admin/ops/sync-retry-blocked',{});M('已重新排程受阻紀錄，請先確認目的地授權已完成。');await load()}catch(e){M(e.message)}}}>完成目的地授權後重新排程</button>}<button className="secondary" onClick={()=>load().catch(e=>M(e.message))}>檢查同步狀態</button><button disabled={busy} onClick={drain}>{busy?'正在逐批同步…':'同步目前營運資料'}</button>{busy&&<button className="quiet" onClick={()=>{stop.current=true;M('目前這批完成後停止。')}}>完成本批後停止</button>}</div>{msg&&<p role="status">{msg}</p>}</section>}
+import React, { useState, useEffect, useRef } from 'react';
+
+export function SyncPanel({ api }) {
+  const [state, S] = useState(null);
+  const [msg, M] = useState('');
+  const [busy, B] = useState(false);
+  const stop = useRef(false);
+  const load = async () => {
+    const r = await api('/api/admin/ops/sync-status');
+    S(r);
+    M('');
+    return r;
+  };
+  useEffect(() => {
+    load().catch(e => M(e.message));
+    return () => { stop.current = true; };
+  }, []);
+  async function drain() {
+    B(true);
+    stop.current = false;
+    try {
+      for (let i = 0; i < 100 && !stop.current; i++) {
+        const s = await load();
+        if (!s.enabled) { M('同步設定尚未啟用，資料維持在營運資料庫，不會宣稱已同步。'); break; }
+        if (!s.pending && !s.retry && !s.processing) {
+          M(s.blocked ? '目的地權限不足，已停止重送；已送達紀錄保留。' :
+            s.conflict ? '其餘已送達；衝突已停止覆寫，請核對差異。' : 'Notion與試算表均已確認收件。');
+          break;
+        }
+        const r = await api('/api/admin/ops/sync-drain', {});
+        if (!r.ok) throw Error(r.error);
+        await load();
+        if (!r.handled) { M('等待其他工作完成或重試時間；可稍後繼續。'); break; }
+      }
+    } catch (e) { M(e.message); }
+    finally { B(false); }
+  }
+  async function revokeEveryDevice() {
+    if (!window.confirm('確定登出所有 PL3 管理裝置？完成後目前這台也需要重新以 Email 驗證登入。')) return;
+    B(true);
+    try {
+      await api('/api/admin/session/revoke-all', {});
+      window.location.reload();
+    } catch (e) { M(e.message); B(false); }
+  }
+  return <>
+    <section className="panel">
+      <h2>管理裝置安全</h2>
+      <p>後台維持長效登入，銀行核帳、寄信與敏感設定須在最近 15 分鐘內完成 Email 驗證。</p>
+      <button className="secondary" disabled={busy} onClick={revokeEveryDevice}>登出所有管理裝置</button>
+    </section>
+    <section className="panel">
+      <h2>Notion／試算表營運同步</h2>
+      <p>一補、二補、實收、分配、退款及履約分開記錄；原有人工修改衝突會停止覆寫。</p>
+      {state && <>
+        <p>{state.enabled ? '同步已啟用' : '同步尚未啟用'} · {state.records}筆客單／詢價 · 來源版本{state.source_version}</p>
+        <div className="statrow">待送{state.pending} · 已確認{state.delivered} · 重試{state.retry} · 傳送中{state.processing} · 衝突{state.conflict} · 權限阻擋{state.blocked || 0}</div>
+        {(state.failures || []).map((c, i) => <p className="error" key={'f' + i}>{c.record_id} · {c.destination} · {c.error_code}{c.status === 'blocked' ? '（待目的地授權）' : ''}</p>)}
+        {state.conflicts.map((c, i) => <p className="error" key={i}>{c.record_id} · {c.destination} · {c.error_code}</p>)}
+      </>}
+      <div className="actions">
+        {state?.conflicts?.some(c => c.destination === 'sheets' && c.error_code === 'OPS_SHEET_MANUAL_EDIT') &&
+          <button className="secondary" disabled={busy} onClick={async () => {
+            try { await api('/api/admin/ops/sync-recheck-sheet-format', {}); await load(); M('已重新核對空白金額格式；原始文件與雜湊仍須一致，實際人工變更不會被覆寫。'); }
+            catch (e) { M(e.message); }
+          }}>重新核對試算表空白金額格式</button>}
+        {state?.conflicts?.some(c => c.error_code === 'OPS_NOTION_REVISION_CHANGED') &&
+          <button className="secondary" disabled={busy} onClick={async () => {
+            try { await api('/api/admin/ops/sync-recheck-revisions', {}); await load(); M('已排程重新檢查來源時間與原始欄位；內容差異仍會停止覆寫。'); }
+            catch (e) { M(e.message); }
+          }}>重新檢查來源版本差異</button>}
+        {state?.blocked > 0 &&
+          <button className="secondary" disabled={busy} onClick={async () => {
+            try { await api('/api/admin/ops/sync-retry-blocked', {}); M('已重新排程受阻紀錄，請先確認目的地授權已完成。'); await load(); }
+            catch (e) { M(e.message); }
+          }}>完成目的地授權後重新排程</button>}
+        <button className="secondary" onClick={() => load().catch(e => M(e.message))}>檢查同步狀態</button>
+        <button disabled={busy} onClick={drain}>{busy ? '正在逐批同步…' : '同步目前營運資料'}</button>
+        {busy && <button className="quiet" onClick={() => { stop.current = true; M('目前這批完成後停止。'); }}>完成本批後停止</button>}
+      </div>
+      {msg && <p role="status">{msg}</p>}
+    </section>
+  </>;
+}

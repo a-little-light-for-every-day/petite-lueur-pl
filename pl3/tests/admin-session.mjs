@@ -7,8 +7,8 @@ const OWNER = "petitelueur.pl@gmail.com";
 const SECRET = "local-only-session-secret";
 const BASE = "https://worker.example";
 const STATE = () => ({ sessions: new Map(), orders: [{id:"qa-order",group_id:"PL3-QA-LOCAL",total_twd:350}] });
-function signed(email=OWNER) {
-  const payload=Buffer.from(JSON.stringify({email,exp:Math.floor(Date.now()/1000)+3600})).toString("base64url");
+function signed(email=OWNER, issuedAt=Math.floor(Date.now()/1000)) {
+  const payload=Buffer.from(JSON.stringify({email,iat:issuedAt,exp:Math.floor(Date.now()/1000)+3600})).toString("base64url");
   return "Bearer "+payload+"."+createHmac("sha256",SECRET).update(payload).digest("base64url");
 }
 function envFor(state) {
@@ -25,8 +25,8 @@ function envFor(state) {
               return {meta:{changes:1}};
             }
             if(sql.startsWith("UPDATE admin_sessions SET revoked_at")) {
-              const [time,id,hash]=this.args;
-              const row=state.sessions.get(hash);
+              if(this.args.length===2){const [time,owner]=this.args;let changed=0;for(const row of state.sessions.values())if(row.owner_email===owner&&row.revoked_at===null){row.revoked_at=time;changed++;}return {meta:{changes:changed}};}
+              const [time,id,hash]=this.args;const row=state.sessions.get(hash);
               if(row?.id===id)row.revoked_at=time;
               return {meta:{changes:row?1:0}};
             }
@@ -112,4 +112,23 @@ test("expired or idle sessions fail closed",async()=>{
   const row=[...state.sessions.values()][0];
   row.idle_expires_at=Math.floor(Date.now()/1000)-1;
   assert.equal((await call(env,"/api/admin/session",{cookie})).status,401);
+});
+test("stale OTP proof cannot mint a fresh high-privilege session",async()=>{
+  const env=envFor(STATE());
+  assert.equal((await call(env,"/api/admin/session/start",{method:"POST",bearer:signed(OWNER,Math.floor(Date.now()/1000)-600),action:true})).status,428);
+});
+test("long-lived owner view remains available, sensitive actions require fresh verification",async()=>{
+  const state=STATE(),{env,cookie}=await signedIn(state);
+  const row=[...state.sessions.values()][0];row.created_at-=1800;
+  assert.equal((await call(env,"/api/admin/session",{cookie})).status,200);
+  assert.equal((await call(env,"/api/admin/ops/export",{cookie})).status,428);
+});
+test("revoke all devices invalidates every owner cookie",async()=>{
+  const state=STATE(),{env,cookie}=await signedIn(state);
+  const second=await call(env,"/api/admin/session/start",{method:"POST",bearer:signed(),action:true});
+  const secondCookie=second.cookie.split(";")[0];
+  const revoked=await call(env,"/api/admin/session/revoke-all",{method:"POST",cookie,action:true});
+  assert.equal(revoked.status,200);assert.equal(revoked.body.revoked,2);
+  assert.equal((await call(env,"/api/admin/session",{cookie})).status,401);
+  assert.equal((await call(env,"/api/admin/session",{cookie:secondCookie})).status,401);
 });

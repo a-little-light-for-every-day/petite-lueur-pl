@@ -58,3 +58,31 @@ test('a report with no finalized invoice remains pending and cannot be directly 
  assert.throws(()=>f.go({type:'receipt_confirm',customer_email:'customer-a@example.com',amount_twd:1775,kind:'bank_confirmed',transaction_id:'NO-INVOICE',evidence:'銀行有收到',confirmed:true,report_id:id,allocations:[]}),/款項分配/);
  assert.equal(f.state.reports[0].status,'pending');assert.equal(f.state.receipts.length,0);
 });
+
+test('fully confirmed first payment creates one review-only acknowledgement after bank allocation',()=>{
+ const f=fixture();f.go({type:'close_group',group_id:f.group_id});
+ const first=f.state.invoices.find(b=>b.order_id===f.a);
+ const reportId=report(f,f.a,'customer-a@example.com');
+ f.go({type:'receipt_confirm',customer_email:'customer-a@example.com',amount_twd:1775,kind:'bank_confirmed',transaction_id:'REAL-BANK-001',evidence:'實際銀行入帳已核對',confirmed:true,report_id:reportId,allocations:[{invoice_id:first.id,amount_twd:1775}]});
+ const confirmed=f.state.notices.filter(n=>n.kind==='first-payment-confirmed');
+ assert.equal(confirmed.length,1);assert.equal(confirmed[0].status,'draft');
+ assert.equal(confirmed[0].to,'customer-a@example.com');assert.match(confirmed[0].body,/第一階段已收款：NT\$1,775/);
+ assert.doesNotMatch(confirmed[0].body,/REAL-BANK-001/);
+ assert.equal(f.state.invoices.find(b=>b.id===first.id).notified,false);
+ assert.throws(()=>f.go({type:'first_payment_confirmation_backfill',invoice_id:first.id,confirmed:true,evidence:'回補確認'}),/已有付款確認通知/);
+ assert.equal(f.state.notices.filter(n=>n.kind==='first-payment-confirmed').length,1);
+});
+
+test('partial funds create no paid acknowledgement; owner can explicitly backfill historical paid invoice exactly once',()=>{
+ const f=fixture();f.go({type:'close_group',group_id:f.group_id});
+ const first=f.state.invoices.find(b=>b.order_id===f.a);
+ f.go({type:'receipt_confirm',customer_email:'customer-a@example.com',amount_twd:100,kind:'bank_confirmed',transaction_id:'REAL-PARTIAL',evidence:'入帳100',confirmed:true,allocations:[{invoice_id:first.id,amount_twd:100}]});
+ assert.equal(f.state.notices.filter(n=>n.kind==='first-payment-confirmed').length,0);
+ f.go({type:'receipt_confirm',customer_email:'customer-a@example.com',amount_twd:1675,kind:'bank_confirmed',transaction_id:'REAL-REMAINING',evidence:'入帳1675',confirmed:true,allocations:[{invoice_id:first.id,amount_twd:1675}]});
+ assert.equal(f.state.notices.filter(n=>n.kind==='first-payment-confirmed').length,1);
+ const historical=structuredClone(f.state);historical.notices=historical.notices.filter(n=>n.kind!=='first-payment-confirmed');
+ let s=historical;const cmd={type:'first_payment_confirmation_backfill',invoice_id:first.id,confirmed:true,evidence:'歷史已核實收款'};
+ s=applyOperation(s,cmd,{id:'backfill-1',now:NOW}).state;
+ assert.equal(s.notices.filter(n=>n.kind==='first-payment-confirmed').length,1);
+ assert.throws(()=>applyOperation(s,cmd,{id:'backfill-2',now:NOW}),/已有付款確認通知/);
+});
