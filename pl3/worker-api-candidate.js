@@ -318,6 +318,9 @@ export default {
       }
       if(request.method==="GET"&&["/","/index.html"].includes(url.pathname))return new Response(homepageHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
       if(request.method==="GET"&&["/privacy","/privacy.html"].includes(url.pathname))return new Response(privacyHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      // Public, read-only storefront markup for the official front-door Worker.
+      // The owner-only /storefront-preview diagnostic remains gated below.
+      if(url.pathname==='/public-storefront'&&request.method==='GET')return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
       // Diagnostic pages must never be served by the production-cutover worker.
       // Staging access requires an explicit flag and an authenticated owner.
       if(url.pathname==="/admin-test"&&request.method==="GET"&&env.PL3_PRODUCTION_CUTOVER!=="true"&&env.PL3_ENABLE_TEST_ROUTES==="true") {
