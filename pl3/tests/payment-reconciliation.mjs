@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import{newOperations,applyOperation,balance}from'../operations-domain.js';
+import{newOperations,applyOperation,balance,reportMatchesExistingReceipt}from'../operations-domain.js';
 
 const NOW='2026-11-06T11:00:00.000Z';
 const BANK_TIME='2026-11-06T11:23:00.000Z';
@@ -85,4 +85,56 @@ test('partial funds create no paid acknowledgement; owner can explicitly backfil
  s=applyOperation(s,cmd,{id:'backfill-1',now:NOW}).state;
  assert.equal(s.notices.filter(n=>n.kind==='first-payment-confirmed').length,1);
  assert.throws(()=>applyOperation(s,cmd,{id:'backfill-2',now:NOW}),/已有付款確認通知/);
+});
+
+function sharedTransferFixture(){
+ let s=newOperations(),seq=0;
+ const go=command=>{const out=applyOperation(s,command,{id:'shared-'+(++seq),now:NOW});s=out.state;return out.result};
+ const group_id=go({type:'group_save',title:'偶像學園 × しまむら',status:'open',payment_due_at:'2026-11-08T15:59:00.000Z'}).group_id;
+ const parts=[['PL-261030-620754',145],['PL-261101-401172',550],['PL-261101-620605',195],['PL-261030-945416',415]];
+ const email='mandychou0916@example.com';
+ for(const [oid,amount]of parts)go({type:'order_save',id:oid,name:'同一付款人',email,group_id,items:[{name:'官方商品',sku:oid,quantity:1,unit_price_twd:amount,shipping_units:1}]});
+ go({type:'close_group',group_id});
+ const reports=parts.map(([oid])=>go({type:'payment_report',order_id:oid,authenticated_email:email,amount_twd:1300,phase:'first',paid_at:BANK_TIME,last5:'12498',method:'台新銀行'}).report_id);
+ const allocations=parts.map(([oid,amount])=>({invoice_id:s.invoices.find(b=>b.order_id===oid&&b.phase==='first').id,amount_twd:oid==='PL-261030-945416'?410:amount}));
+ const receipt_id=go({type:'receipt_confirm',customer_email:email,amount_twd:1300,kind:'bank_confirmed',transaction_id:'ONE-REAL-BANK-1300',evidence:'已核實唯一實際銀行入帳',confirmed:true,allocations}).receipt_id;
+ return{get state(){return s},go,parts,reports,receipt_id,email};
+}
+
+test('one previously allocated NT$1300 receipt links four pending order reports without creating NT$5200 income',()=>{
+ const f=sharedTransferFixture();
+ const before=structuredClone(f.state);
+ assert.equal(before.receipts.length,1);
+ assert.equal(before.reports.filter(r=>r.status==='pending').length,4);
+ assert.ok(f.reports.every(rid=>reportMatchesExistingReceipt(before,before.reports.find(r=>r.id===rid),before.receipts[0])));
+ const result=f.go({type:'receipt_link_reports',receipt_id:f.receipt_id,expected_transaction_id:'ONE-REAL-BANK-1300',report_ids:f.reports,confirmed:true,evidence:'比對原銀行實收、四張客單及145／550／195／410分配'});
+ assert.equal(result.linked_reports,4);
+ assert.equal(result.receipts_created,0);assert.equal(result.allocations_created,0);assert.equal(result.notices_created,0);
+ for(const name of ['receipts','allocations','invoices','notices','refunds'])assert.deepEqual(f.state[name],before[name],name+'不可被修改');
+ assert.ok(f.state.reports.every(r=>r.status==='confirmed'&&r.receipt_id===f.receipt_id&&r.link_evidence));
+ assert.equal(f.state.receipts.reduce((sum,r)=>sum+r.amount_twd,0),1300);
+ assert.equal(f.state.allocations.reduce((sum,a)=>sum+a.amount_twd,0),1300);
+ assert.equal(balance(f.state,f.state.invoices.find(b=>b.order_id==='PL-261030-945416')),5);
+ assert.equal(f.state.history.at(-1).type,'receipt_link_reports');
+ assert.throws(()=>f.go({type:'receipt_link_reports',receipt_id:f.receipt_id,expected_transaction_id:'ONE-REAL-BANK-1300',report_ids:f.reports,confirmed:true,evidence:'重複核對'}),/已完成核對/);
+});
+
+test('linking an existing receipt demands matching order allocation, original transaction ID and explicit evidence',()=>{
+ const f=sharedTransferFixture();
+ const base={type:'receipt_link_reports',receipt_id:f.receipt_id,expected_transaction_id:'ONE-REAL-BANK-1300',report_ids:f.reports,confirmed:true,evidence:'已比對銀行證明'};
+ assert.throws(()=>f.go({...base,confirmed:false}),/核對原銀行交易/);
+ assert.throws(()=>f.go({...base,evidence:''}),/填寫證據/);
+ assert.throws(()=>f.go({...base,expected_transaction_id:'OTHER'}),/已變更/);
+ assert.throws(()=>f.go({...base,report_ids:[f.reports[0],f.reports[0]]}),/不重複/);
+ assert.throws(()=>f.go({...base,report_ids:['missing']}),/不符/);
+ assert.throws(()=>f.go({...base,report_ids:[]}),/付款回報/);
+ const altered=structuredClone(f.state);altered.allocations=altered.allocations.filter(a=>a.invoice_id!==altered.invoices.find(b=>b.order_id==='PL-261030-945416').id);
+ assert.throws(()=>applyOperation(altered,{...base,report_ids:[f.reports[3]]},{id:'no-order-allocation',now:NOW}),/分配不符/);
+ const wrongAmount=structuredClone(f.state);wrongAmount.reports[0].amount_twd=1305;
+ assert.throws(()=>applyOperation(wrongAmount,{...base,report_ids:[f.reports[0]]},{id:'wrong-amount',now:NOW}),/分配不符/);
+ const wrongEmail=structuredClone(f.state);wrongEmail.reports[0].customer_email='someone-else@example.com';
+ assert.throws(()=>applyOperation(wrongEmail,{...base,report_ids:[f.reports[0]]},{id:'wrong-email',now:NOW}),/分配不符/);
+ const wrongPhase=structuredClone(f.state);wrongPhase.reports[0].phase='second';
+ assert.throws(()=>applyOperation(wrongPhase,{...base,report_ids:[f.reports[0]]},{id:'wrong-phase',now:NOW}),/分配不符/);
+ assert.deepEqual(f.state.reports.map(r=>r.status),['pending','pending','pending','pending']);
 });
