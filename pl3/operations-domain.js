@@ -49,7 +49,7 @@ export function makeNotice(s,ids,kind,id,now){
  const deadlines=[...new Set(bills.map(x=>x.due_at).filter(Boolean))];
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
- const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託無卡存款及台灣 Pay；請先向官方確認當次收款資料。付款完成後，請在下方訂單查詢頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://pl3-staging-api.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
+ const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託無卡存款及台灣 Pay。請至下方查單頁驗證訂購 Email，選擇銀行匯款或中國信託無卡存款後，即可查看當次付款帳號；台灣 Pay 請洽官方確認收款資訊。付款完成後，請在同頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
  n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 function allocate(s,r,entries){
@@ -320,6 +320,15 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'order_cancel':{const o=order(s,c.order_id);must(open(o)||['waitlisted','review_pending'].includes(o.status),'已完成或取消的訂單不可直接取消');must(c.confirmed===true&&text(c.reason),'請確認取消原因');must(o.items.every(l=>!l.purchased&&!l.overseas&&!l.transit&&!l.taiwan&&!l.shipped),'已有實購或到倉品項，請先處理官方取消／退款或售後');o.status='cancelled';for(const b of s.invoices.filter(x=>x.order_id===o.id)){b.status='void';for(const a of s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at))a.reversed_at=now;}changed.push(o.id);break;}
  case 'refund_record':{const r=s.receipts.find(x=>x.id===c.receipt_id);must(r&&c.confirmed===true&&text(c.evidence)&&text(c.reference),'請確認實際退款及證據');positive(c.amount_twd);must(!s.refunds.some(x=>x.reference===text(c.reference)),'退款交易已登錄',409);must(c.amount_twd<=credit(s,r),'退款超過未分配餘額；已分配款項須先完成帳務調整');s.refunds.push({id,receipt_id:r.id,amount_twd:c.amount_twd,reference:text(c.reference),evidence:text(c.evidence,2000),created_at:now});break;}
  case 'card_budget':{must(c.confirmed===true&&text(c.evidence),'請確認真實卡額');money(c.available_twd);positive(c.limit_twd);s.config={...s.config,card_available_twd:c.available_twd,card_limit_twd:c.limit_twd,card_evidence:text(c.evidence,2000),card_updated_at:now};break;}
+ case 'payment_accounts_config':{
+  must(c.confirmed===true,'請確認要儲存收款帳號');
+  const bankTransfer=text(c.bank_transfer,32),ctbcCash=text(c.ctbc_cash,32);
+  must(/^\d{10,16}$/.test(bankTransfer)&&/^\d{10,16}$/.test(ctbcCash),'兩組收款帳號皆須為 10～16 位數字');
+  s.config={...s.config,payment_accounts:{bank_transfer:bankTransfer,ctbc_cash:ctbcCash},payment_accounts_updated_at:now};
+  // Keep full account numbers out of commands' result and operations history.
+  result={updated:true,bank_transfer_last4:bankTransfer.slice(-4),ctbc_cash_last4:ctbcCash.slice(-4)};
+  break;
+ }
  default:throw failure('不支援的操作');
  }
  if(changed.length)noticesChanged(s,changed);

@@ -1,8 +1,8 @@
 import React,{useState} from 'react';
 
 // Customer reports are evidence for reconciliation, never proof of cleared funds.
-export function PaymentReport({order,token,api,Input,Modal,onDone}){
- const [v,V]=useState({phase:order.invoices?.some(x=>x.phase==='first')?'first':order.invoices?.some(x=>x.phase==='second')?'second':'first',amount_twd:'',method:'銀行匯款',paid_at:'',last5:'',note:''});
+export function PaymentReport({order,token,api,Input,Modal,onDone,initialPhase,initialMethod}){
+ const [v,V]=useState({phase:initialPhase|| (order.invoices?.some(x=>x.phase==='first')?'first':order.invoices?.some(x=>x.phase==='second')?'second':'first'),amount_twd:'',method:initialMethod||'銀行匯款',paid_at:'',last5:'',note:''});
  const [key]=useState(()=>crypto.randomUUID()),[busy,B]=useState(false),[err,E]=useState('');
  const set=(name,value)=>V(old=>({...old,[name]:value}));
  const last5Label={
