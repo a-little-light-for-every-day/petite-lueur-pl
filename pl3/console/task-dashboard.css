@@ -1,0 +1,26 @@
+.task-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0 0 14px}
+.task-overview-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:8px}
+.task-overview-card>span{font-weight:700;color:#625765}
+.task-overview-card strong{font-size:26px;font-variant-numeric:tabular-nums}
+.task-overview-card small{color:var(--muted);font-size:12px;font-weight:400}
+.task-overview-card.action{border-left:4px solid #bd6c7e}
+.task-overview-card.waiting{border-left:4px solid #92a5bd}
+.task-overview-card.historical{border-left:4px solid #b8a9a1}
+.task-explainer{color:var(--muted);font-size:12px;margin:0 0 19px}
+.task-category{padding:18px 24px}
+.task-category-heading{display:flex;justify-content:space-between;align-items:center;gap:15px;cursor:pointer;list-style-position:inside}
+.task-category-heading>span{flex:1}
+.task-category-heading b{font-size:18px}
+.task-category-heading small{margin:5px 0 0 18px;display:block}
+.task-category-heading>strong{white-space:nowrap;font-size:13px;color:#75616f}
+.task-category>details[open]>.task-category-heading{padding-bottom:14px;border-bottom:1px solid var(--line)}
+.task-order{border-bottom:1px solid #ecedf0;padding:2px 0}
+.task-order>summary{cursor:pointer;display:flex;gap:14px;align-items:center;justify-content:space-between;padding:13px 9px;border-radius:7px;color:#3b414b}
+.task-order>summary::before{content:'▸';color:#947d8c;flex-shrink:0}
+.task-order[open]>summary::before{content:'▾'}
+.task-order>summary>b{flex:1;overflow-wrap:anywhere}
+.task-order>summary>span{color:var(--muted);font-size:12px;white-space:nowrap}
+.task-order>.task{padding:12px 14px 12px 32px}
+.task-order>.task:hover,.task-order>summary:hover{background:#f9f5f8}
+.task-order>.task:focus-visible{outline-offset:-2px}
+@media(max-width:760px){.task-overview{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.task-overview-card{padding:12px 8px}.task-overview-card>span,.task-overview-card small{font-size:10px}.task-overview-card strong{font-size:22px}.task-category{padding:14px}.task-category-heading{align-items:flex-start}.task-category-heading>strong{white-space:normal;text-align:right}.task-order>summary{align-items:flex-start}.task-order>summary>span{white-space:normal;text-align:right}.task-order>.task{padding-left:18px}}
