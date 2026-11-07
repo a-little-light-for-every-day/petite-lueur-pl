@@ -228,6 +228,21 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now};
   s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
  }
+ case 'first_invoice_preorder_issue':{
+  const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
+  must(o.status==='active'&&g?.status==='open','僅可對已確認、仍開團的正式客單建立預購一補',409);
+  must(email(o.email)&&text(o.name),'顧客姓名與Email須完整');
+  must(c.confirmed===true&&text(c.evidence,2000),'請確認官方可訂購狀態、客單與報價依據');
+  must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
+  must(o.items.length>0&&o.items.every(l=>l.quantity>0&&Number.isSafeInteger(l.unit_price_twd)&&l.unit_price_twd>0&&l.shipping_units_confirmed!==false),'商品規格、報價或運費份數尚未核對');
+  must(o.items.every(l=>l.purchased===0),'已有實購紀錄的客單請使用已購得一補流程');
+  const expected=o.items.reduce((sum,l)=>sum+l.quantity*l.unit_price_twd,0);
+  positive(expected);must(c.amount_twd===expected,'金額須與訂單商品款一致');
+  const due=text(c.due_at,60)||g.payment_due_at;
+  must(due&&Number.isFinite(Date.parse(due))&&Date.parse(due)>Date.parse(now),'請設定未來的付款期限');
+  const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now,issue_basis:'preorder_confirmed'};
+  s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
+ }
  case 'owner_test_notice':{must(!s.notices.some(n=>n.kind==='owner-test'&&['draft','queued','sending','unknown'].includes(n.status)),'已有未完成的主購驗收信，請先檢視該草稿');const n={id,kind:'owner-test',to:'petitelueur.pl@gmail.com',subject:'【Petite Lueur PL】3.0 寄信驗收',body:'您好：\n\n這是 PL 3.0 官方信箱寄送測試，僅供主購驗收。未建立客戶帳款、未要求付款，也未發送任何客戶通知。\n\nPetite Lueur PL',attachments:[],order_ids:[],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);result={notice_id:n.id};break;}
  case 'notice_draft':{const n=makeNotice(s,c.invoice_ids,c.kind==='reminder'?'reminder':'payment',id,now);result={notice_id:n.id};break;}
  case 'notice_edit':{
