@@ -1518,7 +1518,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         <div class="field"><label>付款人姓名</label><input id="paymentPayerName" placeholder="請填實際付款人姓名"></div>
         <div class="field"><label>匯款日期</label><input id="paymentDate" type="date"></div>
         <div class="field"><label>匯款金額</label><input id="paymentAmount" type="number" min="1" placeholder="NT$"></div>
-        <div class="field"><label id="paymentLastFiveLabel">付款交易識別資訊（至少五字）</label><input id="paymentLastFive" maxlength="40" placeholder="交易編號末五碼或可辨識資訊"></div>
+        <div class="field"><label id="paymentLastFiveLabel">付款交易識別資訊（至少五字）</label><input id="paymentLastFive" maxlength="40" placeholder="轉出帳號末五碼或交易識別資訊"></div>
         <button id="paymentSubmitBtn" class="legacyPrimary fullBtn" type="button" onclick="submitPaymentReport()">送出付款回報</button>
         <div id="paymentMsg"></div>
       </div>
@@ -3773,7 +3773,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         <span class="meta">請先不要依舊金額付款。Petite Lueur PL 需要重新確認商品庫存、報價與最終金額後，才會重新通知付款。</span>
       </div>`;
     }
-    const methods=[];
+    const methods=['銀行匯款'];
     if(info.taiwanPayEnabled)methods.push('台灣 Pay（合庫 TWQR）');
     if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
     const methodText=methods.length?methods.join('／'):'請私訊確認當次可用方式';
@@ -3818,16 +3818,17 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   function updatePaymentMethodHint(){
     const method=$('paymentMethod').value;
     const map={
+      '銀行匯款':'請填轉出帳號末五碼，以便核對銀行入帳。',
       '台灣 Pay':'請填台灣 Pay 交易識別資訊的末五碼。',
       '中國信託無卡存款':'請填無卡存款交易序號末五碼，或至少五字的人工核對資訊。'
     };
-    $('paymentLastFiveLabel').textContent=method==='中國信託無卡存款'?'存款交易序號／辨識資訊':'轉帳交易識別資訊末五碼';
+    $('paymentLastFiveLabel').textContent=method==='中國信託無卡存款'?'存款交易序號／辨識資訊':method==='銀行匯款'?'轉出帳號末五碼':'台灣 Pay 交易識別資訊末五碼';
     $('paymentMethodHint').textContent=map[method]||'請先與 PL 確認付款方式及當次有效的收款資料。';
   }
   function openPaymentReport(id,orderNumber,stage,amount){
     if(!lookupToken){alert('查詢驗證已過期，請重新驗證 Email');return}
     const info=lookupPaymentInfoByOrder[String(orderNumber||'')]||{};
-    const methods=[];
+    const methods=['銀行匯款'];
     if(info.taiwanPayEnabled)methods.push('台灣 Pay');
     if(info.ctbcCashDepositEnabled)methods.push('中國信託無卡存款');
     $('paymentMethod').innerHTML=methods.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
