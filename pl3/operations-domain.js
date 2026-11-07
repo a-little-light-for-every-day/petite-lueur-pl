@@ -366,10 +366,17 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'purchase_record':{
   must(text(c.official_order)&&text(c.shop)&&text(c.evidence),'請填官方訂單、通路與證據');must(!/animate|アニメイト/i.test(c.shop),'此通路不列為PL商業代購採購通路');must(['JPY','KRW','TWD'].includes(c.currency),'幣別無效');money(c.original_amount);money(c.actual_twd);must(Array.isArray(c.items)&&c.items.length>0,'請指定實購品項');
   must(!s.purchases.some(p=>p.shop===text(c.shop)&&p.official_order===text(c.official_order)),'官方訂單已登錄，請勿重複',409);
-  if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
+  const budgetMode=c.budget_mode||'current';
+  must(['current','historical'].includes(budgetMode),'信用卡預算處理方式無效');
+  if(budgetMode==='historical'){
+   const purchasedAt=text(c.purchased_at,10),todayTaipei=new Date(new Date(now).getTime()+8*60*60*1000).toISOString().slice(0,10);
+   must(/^\d{4}-\d{2}-\d{2}$/.test(purchasedAt)&&!Number.isNaN(Date.parse(purchasedAt))&&new Date(purchasedAt).toISOString().slice(0,10)===purchasedAt&&purchasedAt<todayTaipei,'歷史補登須填早於今日的實際官方下單日期');
+   must(c.historical_confirmed===true&&text(c.historical_reason),'請確認這是過去已完成刷卡的採購，並填補登原因與核實依據');
+  }else if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
   validatePurchaseItems(s,c.items,{approved:c.advance_approved,reason:c.advance_reason});
-  if(c.actual_twd)s.config.card_available_twd-=c.actual_twd;
-  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,items:c.items.map(x=>({...x})),created_at:now});result={purchase_id:id,allocated_items:c.items.length};break;
+  const cardBudgetImpact=budgetMode==='current'?c.actual_twd:0;
+  if(cardBudgetImpact)s.config.card_available_twd-=cardBudgetImpact;
+  s.purchases.push({id,shop:text(c.shop),official_order:text(c.official_order),evidence:text(c.evidence,2000),currency:c.currency,original_amount:c.original_amount,actual_twd:c.actual_twd||null,budget_mode:budgetMode,purchased_at:budgetMode==='historical'?text(c.purchased_at,10):null,historical_reason:budgetMode==='historical'?text(c.historical_reason,2000):null,card_budget_impact_twd:cardBudgetImpact,items:c.items.map(x=>({...x})),created_at:now});result={purchase_id:id,allocated_items:c.items.length,card_budget_impact_twd:cardBudgetImpact};break;
  }
  case 'purchase_allocate':{
   const p=s.purchases.find(x=>x.id===c.purchase_id);must(p,'找不到既有官方訂單',404);
