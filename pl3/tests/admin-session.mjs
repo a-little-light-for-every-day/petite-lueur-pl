@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import worker from "../worker-api-candidate.js";
+import { requireRecentAdminSession, stepUpScopeForOperationsCommand } from "../admin-session.js";
 
 const OWNER = "petitelueur.pl@gmail.com";
 const SECRET = "local-only-session-secret";
@@ -122,6 +123,39 @@ test("long-lived owner view remains available, sensitive actions require fresh v
   const row=[...state.sessions.values()][0];row.created_at-=1800;
   assert.equal((await call(env,"/api/admin/session",{cookie})).status,200);
   assert.equal((await call(env,"/api/admin/ops/export",{cookie})).status,428);
+});
+test("payment confirmation and allocation share a two-hour OTP window, other mutations remain 15 minutes",()=>{
+  const now=Math.floor(Date.now()/1000);
+  assert.equal(stepUpScopeForOperationsCommand("receipt_confirm"),"payment");
+  assert.equal(stepUpScopeForOperationsCommand("credit_allocate"),"payment");
+  for(const type of ["payment_accounts_config","notice_approve","receipt_date_correct","refund_record",undefined]) {
+    assert.equal(stepUpScopeForOperationsCommand(type),"high");
+  }
+  const session={createdAt:now-60*60};
+  assert.doesNotThrow(()=>requireRecentAdminSession(session,"payment"));
+  assert.throws(()=>requireRecentAdminSession(session,"high"),e=>e.status===428);
+  assert.throws(()=>requireRecentAdminSession({createdAt:now-2*60*60-1},"payment"),e=>e.status===428);
+  assert.throws(()=>requireRecentAdminSession({createdAt:now+120},"payment"),e=>e.status===428);
+});
+test("the owner command endpoint grants the longer window only to receipt commands",async()=>{
+  const state=STATE(),{env,cookie}=await signedIn(state);
+  const row=[...state.sessions.values()][0];
+  const request=async type=>{
+    const res=await worker.fetch(new Request(BASE+"/api/admin/ops/command",{
+      method:"POST",
+      headers:{Origin:BASE,Cookie:cookie,"X-PL3-Admin-Action":"1","Content-Type":"application/json"},
+      // Missing key intentionally stops execution before any database mutation.
+      body:JSON.stringify({command:{type}})
+    }),env);
+    return res.status;
+  };
+  row.created_at-=30*60;
+  assert.equal(await request("receipt_confirm"),400);
+  assert.equal(await request("credit_allocate"),400);
+  assert.equal(await request("payment_accounts_config"),428);
+  assert.equal(await request("notice_approve"),428);
+  row.created_at-=2*60*60;
+  assert.equal(await request("receipt_confirm"),428);
 });
 test("revoke all devices invalidates every owner cookie",async()=>{
   const state=STATE(),{env,cookie}=await signedIn(state);

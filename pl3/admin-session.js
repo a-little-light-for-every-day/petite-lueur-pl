@@ -4,6 +4,8 @@ const COOKIE = "__Host-pl3_admin";
 const ABSOLUTE_SECONDS = 30 * 24 * 60 * 60;
 const IDLE_SECONDS = 7 * 24 * 60 * 60;
 const STEP_UP_SECONDS = 15 * 60;
+const PAYMENT_STEP_UP_SECONDS = 2 * 60 * 60;
+const PAYMENT_COMMAND_TYPES = new Set(["receipt_confirm", "credit_allocate"]);
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 const base64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 const newToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -57,8 +59,15 @@ export async function readAdminSession(request, env) {
   }
   return { id: row.id, email: row.owner_email, createdAt: row.created_at, expiresAt: row.expires_at, hash };
 }
-export function requireRecentAdminSession(session) {
-  if (!Number.isFinite(session.createdAt) || nowSeconds() - session.createdAt > STEP_UP_SECONDS || session.createdAt > nowSeconds() + 60)
+// Only bank-confirmed receipt creation and allocation reuse the same OTP proof
+// for two hours. All other owner mutations (including bank-account changes,
+// sending notices and session revocation) keep the original 15-minute window.
+export function stepUpScopeForOperationsCommand(commandType) {
+  return PAYMENT_COMMAND_TYPES.has(commandType) ? "payment" : "high";
+}
+export function requireRecentAdminSession(session, scope = "high") {
+  const windowSeconds = scope === "payment" ? PAYMENT_STEP_UP_SECONDS : STEP_UP_SECONDS;
+  if (!Number.isFinite(session.createdAt) || nowSeconds() - session.createdAt > windowSeconds || session.createdAt > nowSeconds() + 60)
     reject("高風險操作須重新驗證 Email，長效登入仍然保留。", 428);
 }
 export async function revokeAdminSession(env, session) {

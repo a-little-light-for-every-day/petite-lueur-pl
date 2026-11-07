@@ -24,7 +24,7 @@ import { drainOutbox } from "./sync-outbox.js";
 import {qaPaymentStart,qaPaymentDrain,qaPaymentStatus} from './qa-payment-phases.js';
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
-import { createAdminSession, readAdminSession, revokeAdminSession, revokeAllAdminSessions, requireRecentAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
+import { createAdminSession, readAdminSession, revokeAdminSession, revokeAllAdminSessions, requireRecentAdminSession, stepUpScopeForOperationsCommand, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
 import { customerSessionCookie, readCustomerSessionCookie, clearCustomerSessionCookie } from "./customer-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
@@ -225,7 +225,7 @@ async function authorizedOwner(request,env) {
   if(!bearer&&request.method!=="GET") requireSameOriginAction(request);
   return email;
 }
-async function requireOwnerStepUp(request,env) {
+async function requireOwnerStepUp(request,env,scope="high") {
   const bearer=request.headers.get("Authorization");
   if(bearer) {
     // The owner API bearer is accepted only immediately after an OTP challenge.
@@ -236,7 +236,7 @@ async function requireOwnerStepUp(request,env) {
     if(!Number.isInteger(data.iat)||data.iat>now+60||now-data.iat>300)fail("高風險操作須重新驗證 Email。",428);
   } else {
     const session=await readAdminSession(request,env);
-    requireRecentAdminSession(session);
+    requireRecentAdminSession(session,scope);
   }
 }
 async function privateQaCheckout(body,env){
@@ -351,7 +351,9 @@ export default {
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
-        if((request.method==="POST"&&!["/api/admin/ops/mail-health"].includes(url.pathname))||url.pathname==="/api/admin/ops/export")await requireOwnerStepUp(request,env);
+        // The command endpoint chooses the step-up window from its validated
+        // command type below; every other protected operation stays high-risk.
+        if((request.method==="POST"&&!["/api/admin/ops/mail-health","/api/admin/ops/command"].includes(url.pathname))||url.pathname==="/api/admin/ops/export")await requireOwnerStepUp(request,env);
         if(url.pathname==="/api/admin/ops/receiver-source"&&request.method==="GET")return new Response(operationsReceiverSource,{headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
         if(url.pathname==="/api/admin/ops/export"&&request.method==="GET"){
           return response(await exportOperationsBackup(env),200,origin);
@@ -381,7 +383,9 @@ export default {
           const raw=await request.text();if(raw.length>1000000)fail("Import too large",413);let data;try{data=JSON.parse(raw);}catch{fail("Invalid JSON");}return response(await importOperations(data,actor,env),200,origin);
         }
         if(url.pathname==="/api/admin/ops/command"&&request.method==="POST"){
-          const body=await jsonBody(request);if(body.command?.type==='payment_report'||['service_request','service_customer_accept','service_customer_decline'].includes(body.command?.type))fail("Use customer payment report endpoint");
+          const body=await jsonBody(request);
+          await requireOwnerStepUp(request,env,stepUpScopeForOperationsCommand(body.command?.type));
+          if(body.command?.type==='payment_report'||['service_request','service_customer_accept','service_customer_decline'].includes(body.command?.type))fail("Use customer payment report endpoint");
           const result=await executeOperation(body,actor,env);
           if(result.result?.queue&&!result.replayed)result.delivery=await sendQueuedNotice(env,result.result.notice_id,(n,key)=>sendOperationsMail(env,n,key));
           return response(result,200,origin);
