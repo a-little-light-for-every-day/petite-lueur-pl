@@ -1,9 +1,44 @@
 import test from 'node:test';import assert from 'node:assert/strict';import{DatabaseSync}from'node:sqlite';
-import{newOperations,applyOperation,balance,credit,noticeContent,operationalTasks}from'../operations-domain.js';
+import{newOperations,applyOperation,balance,credit,noticeContent,operationalTasks,invoiceNotificationStatus}from'../operations-domain.js';
 import{installOperations,loadOperations,executeOperation,sendQueuedNotice,operationsView,saveOperationsAttachment,recoverMailClaims}from'../operations-store.js';
 import{sendOperationsMail}from'../operations-mail.js';
 import{operationsMirrorDocuments}from'../operations-mirror.js';
 const NOW='2026-11-04T01:00:00.000Z';
+test('payment notice and paid confirmation have independent delivery states',()=>{
+ const f=fixture();f.go({type:'close_group',group_id:f.g});const b=f.state.invoices[0];
+ assert.equal(invoiceNotificationStatus(f.state,b).payment_notice.status,'draft');
+ assert.equal(invoiceNotificationStatus(f.state,b).receipt_confirmation.status,'none');
+ const request=f.state.notices[0];request.status='sent';request.gmail_message_id='request-1';
+ let status=invoiceNotificationStatus(f.state,b);
+ assert.equal(status.payment_notice.status,'sent');assert.equal(status.receipt_confirmation.status,'none');
+ f.go({type:'receipt_confirm',customer_email:'customer@example.com',amount_twd:890,kind:'bank_confirmed',transaction_id:'paid-1',evidence:'bank proof',confirmed:true,allocations:[{invoice_id:b.id,amount_twd:890}]});
+ const receipt=f.state.notices.find(n=>n.kind==='first-payment-confirmed');
+ assert.equal(receipt.status,'draft');status=invoiceNotificationStatus(f.state,b);
+ assert.equal(status.payment_notice.status,'sent');assert.equal(status.receipt_confirmation.status,'draft');
+ receipt.status='sent';receipt.gmail_message_id='receipt-1';
+ status=invoiceNotificationStatus(f.state,b);
+ assert.equal(status.payment_notice.gmail_message_id,'request-1');
+ assert.equal(status.receipt_confirmation.gmail_message_id,'receipt-1');
+ const historic=structuredClone(f.state);historic.notices=[];historic.invoices[0].notified=true;
+ status=invoiceNotificationStatus(historic,historic.invoices[0]);
+ assert.equal(status.payment_notice.status,'legacy_unverified');
+ assert.equal(status.receipt_confirmation.status,'none');
+});
+test('sending a paid confirmation alone does not mark the payment notice as sent',async()=>{
+ const env=dbEnv(),f=fixture();await installOperations(env);
+ const bill=f.go({type:'first_invoice_preorder_issue',order_id:f.o,amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'official preorder'});
+ f.go({type:'receipt_confirm',customer_email:'customer@example.com',amount_twd:890,kind:'bank_confirmed',transaction_id:'bank-1',evidence:'bank',confirmed:true,allocations:[{invoice_id:bill.invoice_id,amount_twd:890}]});
+ env.db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(f.state));
+ const notice=f.state.notices.find(n=>n.kind==='first-payment-confirmed');
+ await executeOperation({key:'approve-paid-confirmation-01',version:0,command:{type:'notice_approve',notice_id:notice.id,version:notice.version,content:noticeContent(notice),confirmed:true}},'owner',env);
+ await sendQueuedNotice(env,notice.id,async()=>({id:'gmail-paid-1',threadId:'thread-paid'}));
+ const view=await operationsView(env),invoice=view.state.invoices[0],status=invoiceNotificationStatus(view.state,invoice);
+ assert.equal(invoice.notified,false);
+ assert.equal(status.payment_notice.status,'none');
+ assert.equal(status.receipt_confirmation.status,'sent');
+ assert.equal(status.receipt_confirmation.gmail_message_id,'gmail-paid-1');
+ env.db.close();
+});
 function fixture(){let s=newOperations();let n=0;const go=c=>{const r=applyOperation(s,c,{id:'test-'+(++n),now:NOW});s=r.state;return r.result};const g=go({type:'group_save',title:'測試團次',payment_due_at:'2026-11-05T12:00:00Z'}).group_id;const o=go({type:'order_save',id:'ORDER-A',name:'測試顧客',email:'customer@example.com',group_id:g,items:[{name:'測試商品',sku:'A',quantity:2,unit_price_twd:445,shipping_units:1}]}).order_id;return{get state(){return s},go,g,o};}
 function dbEnv(){const db=new DatabaseSync(':memory:');function prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return db.prepare(sql).get(...args)||null},async all(){return{results:db.prepare(sql).all(...args)}},async run(){const r=db.prepare(sql).run(...args);return{meta:{changes:Number(r.changes)}}}};return q}
 return{DB:{prepare,async exec(sql){db.exec(sql)},async batch(stmts){db.exec('BEGIN');try{const out=[];for(const q of stmts)out.push(await q.run());db.exec('COMMIT');return out}catch(e){db.exec('ROLLBACK');throw e}}},db,PL3_OPS_MAIL_ENABLED:'true'};}

@@ -41,6 +41,21 @@ const noticesChanged=(s,ids)=>{for(const n of s.notices)if(!['sent','sending','u
 }};
 export function noticeDependency(s,n){return JSON.stringify({orders:n.order_ids.map(id=>{const o=order(s,id);return [id,o.email,o.status,o.name];}),invoices:n.invoice_ids.map(id=>{const b=invoice(s,id);return [id,b.amount_twd,b.finalized,b.channel,b.due_at,b.status,balance(s,b)];})});}
 export function noticeContent(n){return JSON.stringify([n.to,n.subject,n.body,n.attachments||[],n.dependency]);}
+// Delivery status is derived from the immutable, typed notice records. An old
+// invoice.notified flag is not proof that either specific email was delivered:
+// older imports and receipt confirmations both used to set that same flag.
+export function invoiceNotificationStatus(s,b){
+ const notices=(s.notices||[]).filter(n=>Array.isArray(n.invoice_ids)&&n.invoice_ids.includes(b.id));
+ const classify=kind=>{
+  const matches=notices.filter(n=>n.kind===kind);
+  const precedence=['sent','unknown','sending','queued','draft','failed','void'];
+  const notice=precedence.map(status=>matches.slice().reverse().find(n=>n.status===status)).find(Boolean);
+  return notice?{status:notice.status,notice_id:notice.id,sent_at:notice.status==='sent'?notice.sent_at||null:null,gmail_message_id:notice.status==='sent'?notice.gmail_message_id||null:null}:{status:'none',notice_id:null,sent_at:null,gmail_message_id:null};
+ };
+ const payment_notice=classify('payment'),receipt_confirmation=classify('first-payment-confirmed');
+ if(payment_notice.status==='none'&&b.notified===true)payment_notice.status='legacy_unverified';
+ return {payment_notice,receipt_confirmation};
+}
 export function makeNotice(s,ids,kind,id,now){
  const bills=ids.map(x=>invoice(s,x));must(bills.length>0&&new Set(ids).size===ids.length,'請選擇不重複的帳款');
  const orders=[...new Set(bills.map(x=>x.order_id))].map(x=>order(s,x));
