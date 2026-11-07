@@ -29,6 +29,22 @@ export function taskOrderId(state,task){
  return null;
 }
 
+function standaloneLabel(state,task){
+ if(task.type==='purchase'){
+  const p=(state.purchases||[]).find(x=>x.id===task.object_id);
+  return p?task.title+' · '+[p.shop,p.official_order||p.id].filter(Boolean).join(' / '):task.title+' · '+task.object_id;
+ }
+ if(task.type==='credit'){
+  const receipt=(state.receipts||[]).find(x=>x.id===task.object_id);
+  return task.title+' · '+(receipt?.transaction_id||task.object_id);
+ }
+ if(task.type==='notice'){
+  const notice=(state.notices||[]).find(x=>x.id===task.object_id);
+  return task.title+' · '+(notice?.subject||task.object_id);
+ }
+ return task.title;
+}
+
 export function taskDashboardModel(state,tasks){
  const sections={action:[],waiting:[],historical:[]};
  const indexes={action:new Map(),waiting:new Map(),historical:new Map()};
@@ -39,7 +55,7 @@ export function taskDashboardModel(state,tasks){
   let entry=indexes[category].get(key);
   if(!entry){
    const order=(state.orders||[]).find(o=>o.id===orderId);
-   entry={key,orderId,title:orderId?orderId+(order?.name?' · '+order.name:''):task.title,tasks:[]};
+   entry={key,orderId,title:orderId?orderId+(order?.name?' · '+order.name:''):standaloneLabel(state,task),tasks:[]};
    indexes[category].set(key,entry);
    sections[category].push(entry);
   }

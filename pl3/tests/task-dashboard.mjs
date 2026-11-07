@@ -41,3 +41,10 @@ test('a cross-customer notice or official purchase is not assigned to one custom
  assert.equal(m.action.orderCount,0);
  assert.equal(m.action.groups.length,2);
 });
+
+test('unassigned official purchases show their real reference rather than identical labels',()=>{
+ const withPurchase={...state,purchases:[{id:'P-1',shop:'日本官方',official_order:'ABC-123'}]};
+ const m=taskDashboardModel(withPurchase,[task('purchase','P-1','實際刷卡金額待核對')]);
+ assert.match(m.action.groups[0].title,/日本官方 \/ ABC-123/);
+ assert.equal(m.action.orderCount,0);
+});
