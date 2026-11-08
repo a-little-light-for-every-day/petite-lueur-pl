@@ -1,3 +1,4 @@
+import {reportMailFailure} from "./mail-failure-alert.js";
 import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
 import {starTraceAdmission} from './star-trace-admission.js';
 import {remainingGroupCapacity} from './group-capacity.js';
@@ -86,7 +87,7 @@ export async function sendQueuedNotice(env,noticeId,send){
  const beforeReservation=structuredClone(latest.state);approved.status='sending';
  try{await commit(env,{...latest,state:beforeReservation},latest.state,{key:'mail-claim:'+crypto.randomUUID(),type:'mail.claimed',requestHash:await hash(r.id),actor:'system:mail-delivery',result:{notice_id:noticeId}});}catch(e){if(e.status!==409)throw e;await env.DB.prepare("UPDATE pl_ops_mail SET status='void',error_code='APPROVAL_STALE' WHERE id=? AND status='sending'").bind(r.id).run();return {status:'void'};}
  try{const sent=await send(snap,r.id);await env.DB.prepare("UPDATE pl_ops_mail SET status='sent',gmail_message_id=?,gmail_thread_id=?,sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(sent.id,sent.threadId||null,r.id).run();await persistMailResult(env,noticeId,'sent',{gmail_message_id:sent.id,gmail_thread_id:sent.threadId||null});return {status:'sent',gmail_message_id:sent.id};}
- catch(e){const status=e.definite?'failed':'unknown',code=e.code||'DELIVERY_UNCERTAIN';await env.DB.prepare("UPDATE pl_ops_mail SET status=?,error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(status,code,r.id).run();await persistMailResult(env,noticeId,status,{error_code:code});return {status,error_code:code};}
+ catch(e){const status=e.definite?'failed':'unknown',code=e.code||'DELIVERY_UNCERTAIN';await env.DB.prepare("UPDATE pl_ops_mail SET status=?,error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(status,code,r.id).run();await persistMailResult(env,noticeId,status,{error_code:code});try{await reportMailFailure(env,'operations',code);}catch(alertError){console.error('PL3 mail alert handling failed',String(alertError?.message||'unknown').slice(0,60));}return {status,error_code:code};}
 }
 export async function recoverMailClaims(env){
  // A lost acknowledgement is not a safe retry. Surface old in-flight requests for investigation.
