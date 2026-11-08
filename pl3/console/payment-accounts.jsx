@@ -29,7 +29,7 @@ export function PaymentAccountsSettings({config,run}){
 
 export function PaymentInstructions({options,amount,onReport}){
  const [method,M]=useState(''),[copied,C]=useState('');
- if(!options?.length)return null;
+ if(!options?.length)return <p className="note">目前沒有可顯示的付款帳號。請以正式付款通知為準；帳款確認並通知後，才可在已驗證的訂單中選擇付款方式查看帳號。取消、缺貨及尚未核定的訂單不會顯示收款資料。</p>;
  const selected=options.find(o=>o.method===method);
  async function copy(){
   if(!selected)return;
