@@ -11,6 +11,7 @@ import { checkoutOperations,publicOperationsCatalog,installOperations,operations
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import { paymentInstructionsFor } from './payment-instructions.js';
+import { qaPaymentBillSet, qaPaymentBillStatus, qaPaymentBillForCustomer } from './qa-payment-bill.js';
 import { BENEFIT_GROUP } from './benefit-checkout.js';
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import starTraceHtml from './star-trace-html.js';
@@ -442,7 +443,8 @@ export default {
       }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
-        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,group_title:state.groups.find(g=>g.id===o.group_id)?.title||null,application:o.application?{contact:o.application.contact,delivery_method:o.application.delivery_method}:null,benefit_preference:o.benefit_preference?{members:o.benefit_preference.members,allow_repeat:o.benefit_preference.allow_repeat,prefer_full_set:o.benefit_preference.prefer_full_set!==false}:null,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd,payment_options:paymentInstructionsFor(state,o,b)})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,phase:r.phase||null,paid_at:r.paid_at||null,status:r.status,created_at:r.created_at}))}))},200,origin);
+        const qa=await qaPaymentBillForCustomer(env,state,customer);
+        return response({ok:true,orders:[...owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,group_title:state.groups.find(g=>g.id===o.group_id)?.title||null,application:o.application?{contact:o.application.contact,delivery_method:o.application.delivery_method}:null,benefit_preference:o.benefit_preference?{members:o.benefit_preference.members,allow_repeat:o.benefit_preference.allow_repeat,prefer_full_set:o.benefit_preference.prefer_full_set!==false}:null,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd,payment_options:paymentInstructionsFor(state,o,b)})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,phase:r.phase||null,paid_at:r.paid_at||null,status:r.status,created_at:r.created_at}))})),...(qa?[qa]:[])]},200,origin);
       }
       if(url.pathname==="/api/operations/payment-report"&&request.method==="POST"){
         const customer=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);
@@ -573,6 +575,15 @@ export default {
         await authorizedOwner(request,env);
         await requireOwnerStepUp(request,env);
         return response(await drainOutbox(env),200,origin);
+      }
+      if(url.pathname.startsWith('/api/admin/qa-payment-bill/')){
+        await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
+        if(url.pathname==='/api/admin/qa-payment-bill/status'&&request.method==='GET')return response(await qaPaymentBillStatus(env),200,origin);
+        if(url.pathname==='/api/admin/qa-payment-bill/set'&&request.method==='POST'){
+          const body=await jsonBody(request);
+          return response(await qaPaymentBillSet(env,body.stage),200,origin);
+        }
       }
       if(url.pathname.startsWith('/api/admin/qa-payment-phases/')){
         await authorizedOwner(request,env);

@@ -19,6 +19,8 @@
     "PL3_OPS_SYNC_ENABLED": "true",
     "PL3_GMAIL_OAUTH_STATUS": "production",
     "PL3_PRODUCTION_CUTOVER": "true",
+    "PL3_QA_PAYMENT_ENABLED": "true",
+    "PL3_QA_PAYMENT_EMAIL": "petitelueur.pl+pl3-qa@gmail.com",
     "PL3_SYNC_ALLOW_QA": "true",
     "PL3_SYNC_WEBHOOK_URL": "https://script.google.com/macros/s/AKfycbzd6MP0MveFRr0FtOsq5I81Om6y8jJuWuCLFlNYX_j9trPwrTAWSO9wkpUFdtozH7Um9w/exec",
     "PL3_FORMAL_ALLOWED_GROUP_ID": "PL3-FORMAL-REHEARSAL-01",
