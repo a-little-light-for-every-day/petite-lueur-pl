@@ -11,6 +11,7 @@
       "database_id": "cc08ca47-1b59-435c-8ac9-11d0a1c703e9"
     }
   ],
+  "services": [{"binding":"PL_LINE_ALERT","service":"pl-line-webhook"}],
   "vars": {
     "GMAIL_SENDER": "petitelueur.pl@gmail.com",
     "PL3_ADMIN_EMAIL": "petitelueur.pl@gmail.com",
@@ -30,7 +31,8 @@
       "GMAIL_CLIENT_SECRET",
       "GMAIL_REFRESH_TOKEN",
       "OTP_PEPPER",
-      "SESSION_SECRET"
+      "SESSION_SECRET",
+      "PL_MAIL_ALERT_SECRET"
     ]
   },
   "triggers": {"crons": ["*/5 * * * *"]},
