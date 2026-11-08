@@ -41,3 +41,11 @@ test('Notion and Sheets receive inventory snapshot identities without duplicatin
  assert.equal(docs[0].document.claims.length,1);
  assert.equal(s.purchases.length,0);
 });
+test('confirmed inventory claim issues a first payment bill from original purchase evidence, without a second purchase',()=>{
+ let s=setup();s=run(s,claim(1),'claim1').state;
+ assert.throws(()=>run(s,{type:'first_invoice_issue',order_id:'PL3-READY-claim1',amount_twd:170,confirmed:true,evidence:'官方採購',due_at:'2026-11-12T12:00:00.000Z'},'invoice0'));
+ s=run(s,{type:'order_review',order_id:'PL3-READY-claim1',confirmed:true,evidence:'備貨可承接'},'review1').state;
+ s=run(s,{type:'first_invoice_issue',order_id:'PL3-READY-claim1',amount_twd:170,confirmed:true,evidence:'原官方訂單 NEOWING-101',due_at:'2026-11-12T12:00:00.000Z'},'invoice1').state;
+ assert.equal(s.invoices[0].amount_twd,170);assert.equal(s.purchases.length,0);
+ assert.throws(()=>run(s,{type:'first_invoice_issue',order_id:'PL3-READY-claim1',amount_twd:170,confirmed:true,evidence:'重複',due_at:'2026-11-12T12:00:00.000Z'},'invoice2'),/已有一補/);
+});

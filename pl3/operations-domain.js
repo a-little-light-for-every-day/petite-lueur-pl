@@ -275,14 +275,14 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'first_invoice_issue':{
   const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
-  must(open(o)&&g,'訂單無法建立商品款帳款');
+  must(open(o)&&(g||o.ready_inventory===true),'訂單無法建立商品款帳款');
   must(c.confirmed===true&&text(c.evidence),'請確認官方採購證據與商品款');
   must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
   must(o.items.length>0&&o.items.every(l=>l.purchased===l.quantity&&l.quantity>0),'須所有品項已實際購得，未購得品項請勿提前請款');
-  must(o.items.every(l=>(s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0)>=l.quantity),'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
+  must(o.items.every(l=>o.ready_inventory===true?(s.ready_claims||[]).some(x=>x.order_id===o.id&&x.item_id===l.id&&x.status==='confirmed'&&x.quantity===l.quantity&&(s.ready_stock||[]).some(stock=>stock.id===x.stock_id&&stock.official_order_id)): (s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0)>=l.quantity),'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
   const expected=o.items.reduce((sum,l)=>sum+l.quantity*l.unit_price_twd,0);
   positive(expected);must(c.amount_twd===expected,'金額須與實際購得商品款一致');
-  const due=text(c.due_at,60)||g.payment_due_at;
+  const due=text(c.due_at,60)||g?.payment_due_at;
   must(due&&Number.isFinite(Date.parse(due)),'請確認付款期限');
   const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now};
   s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
