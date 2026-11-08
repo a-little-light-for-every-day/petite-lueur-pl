@@ -45,6 +45,10 @@ nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:22
 <p id="qa-result" class="hint" role="status" aria-live="polite">尚未建立本次測試訂單。</p>
 <div class="actionbar"><button id="formal-status" type="button" class="alt">查看同步狀態</button><button id="formal-drain" type="button">手動同步一批</button></div>
 <p id="formal-result" class="hint" role="status" aria-live="polite">尚未讀取狀態。</p><p id="formal-last-run" class="hint" role="status" aria-live="polite"></p>
+<h3>客人付款資料頁面隔離驗收</h3>
+<p class="muted">使用專用測試 Email 與獨立 QA 帳款；不建立真實客單、不寄付款通知、不新增收款或核帳紀錄。切換狀態後以測試 Email 完成 OTP，開啟 /account 驗收顯示。</p>
+<div class="actionbar"><select id="qa-bill-stage"><option value="not_notified">未通知</option><option value="notified">已通知（顯示付款方式與帳號）</option><option value="settled">已結清</option><option value="cancelled">取消</option><option value="overdue">逾期</option></select><button id="qa-bill-set" type="button">套用測試狀態</button><button id="qa-bill-status" type="button" class="alt">查看測試狀態</button></div>
+<p id="qa-bill-result" class="hint" role="status" aria-live="polite">尚未建立隔離測試帳款。</p>
 <h3>一補／二補隔離帳款（QA）</h3>
 <p class="muted">固定假資料：一補 NT$890、模擬部分付款 NT$800、剩餘 NT$90 轉二補、二補 NT$228、模擬結清。只使用獨立 QA 表格與 Notion，不寄信、不核對真實銀行款項。</p>
 <div class="actionbar"><button id="phase-create" type="button" class="alt">建立隔離帳款</button><button id="phase-drain" type="button">寫入 QA Sheets／Notion</button><button id="phase-status" type="button" class="alt">核對送達狀態</button></div>
@@ -227,6 +231,9 @@ async function phaseStatus(){const s=await request('/api/admin/qa-payment-phases
 $('phase-create').addEventListener('click',async()=>{if(busy)return;setBusy(true);try{await request('/api/admin/qa-payment-phases/start','POST',{});await phaseStatus();}catch(e){$('phase-result').textContent='建立失敗：'+e.message;}finally{setBusy(false);}});
 $('phase-drain').addEventListener('click',async()=>{if(busy)return;setBusy(true);try{const r=await request('/api/admin/qa-payment-phases/drain','POST',{});$('phase-result').textContent=r.outcomes.map(x=>x.event_id+'：'+x.status+(x.error_code?'（'+x.error_code+'）':'')).join('／');await phaseStatus();}catch(e){$('phase-result').textContent='同步失敗：'+e.message;}finally{setBusy(false);}});
 $('phase-status').addEventListener('click',async()=>{if(busy)return;setBusy(true);try{await phaseStatus();}catch(e){$('phase-result').textContent='核對失敗：'+e.message;}finally{setBusy(false);}});
+async function qaBillStatus(){const s=await request('/api/admin/qa-payment-bill/status');$('qa-bill-result').textContent=s.bill?'測試帳款 '+s.bill.id+'｜目前狀態：'+s.bill.stage+'｜不連動真實客單':'尚未建立隔離測試帳款。';return s;}
+$('qa-bill-set').addEventListener('click',async()=>{if(busy)return;setBusy(true);try{const stage=$('qa-bill-stage').value;const s=await request('/api/admin/qa-payment-bill/set','POST',{stage});$('qa-bill-result').textContent='已套用隔離狀態：'+s.stage+'。請以專用測試 Email 完成 OTP，再開啟 /account 驗收。';}catch(e){$('qa-bill-result').textContent='更新失敗：'+e.message;}finally{setBusy(false);}});
+$('qa-bill-status').addEventListener('click',async()=>{if(busy)return;setBusy(true);try{await qaBillStatus();}catch(e){$('qa-bill-result').textContent='讀取失敗：'+e.message;}finally{setBusy(false);}});
 const legacyIssues={HISTORICAL_PRICE_UNKNOWN:"歷史單價未載明",SOURCE_REVISION_CONFLICT:"同版本來源衝突",SOURCE_REVISION_MISSING:"缺來源版本",SOURCE_PAGE_MISSING:"缺原單連結",ITEM_RELATION_MISSING:"缺明細關聯",FIRST_AMOUNT_UNKNOWN:"一補金額未定",SECOND_AMOUNT_UNKNOWN:"二補未定",ITEM_AMOUNT_MISMATCH:"商品明細與金額不符",INVALID_LINE:"明細格式需確認",VERIFIED_AMOUNT_MISSING:"已核對但缺入帳金額",SECOND_RECEIPT_ALLOCATION_REQUIRED:"需補二補入帳歸屬",RECEIPT_NOT_VERIFIED:"回報尚未核實入帳",UNALLOCATED_CREDIT_REQUIRES_REVIEW:"溢付款待分配",PURCHASE_HOLD:"採購延後",COD_AND_BANK_CONFIRMATION_CONFLICT:"貨到付款與銀行入帳衝突",CARRY_INVALID:"尾款轉二補資料不全",CARRY_INCLUSION_UNKNOWN:"需確認二補是否含尾款",CARRY_EXCEEDS_SECOND:"二補小於轉入尾款"};
 function clearLegacy(){ $("legacy-json").value="";$("legacy-results").replaceChildren();$("legacy-summary").textContent="已清除本次預覽。"; }
 $("legacy-clear").addEventListener("click",clearLegacy);
