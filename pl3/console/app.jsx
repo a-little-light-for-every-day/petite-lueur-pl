@@ -101,7 +101,7 @@ function Customer({token}){
  {data?.orders?.map(o=><section className="panel" key={o.id}><div className="sectionhead"><h2>{o.id}</h2><Tag>{o.live_status||o.source_status||o.status}</Tag></div>
  {o.application&&<p>聯絡方式：{o.application.contact||'未提供'}<br/>希望收貨方式：{o.application.delivery_method||'未提供'}</p>}
  {o.benefit_preference&&<p>滿額排卡志願：{o.benefit_preference.members.join(' → ')} · {o.benefit_preference.allow_repeat?'接受':'不接受'}重複卡。滿 ₩250,000 {o.benefit_preference.prefer_full_set===false?'不優先配整套':'優先配整套'}；最終資格依官方採購認列金額核對。</p>}
- {o.items.length?o.items.map((l,i)=><Timeline key={i} l={l}/>):<p>{o.raw_item_text}</p>}
+ {o.items.length?o.items.map((l,i)=><Timeline key={i} l={l}/>):<div className="note"><p>歷史商品名稱待核實{ o.group_title?'｜來源團次：'+o.group_title:''}</p><p>原始商品紀錄：{o.raw_item_text||'原資料未提供商品名稱'}</p><small>原始代碼保留供主購追溯；不以團次名稱冒充商品名稱。</small></div>}
  <div className="bills">{o.invoices.map(b=><article className="bill" key={b.id}><b>{phase(b.phase)}</b><h3>{b.finalized?money(b.amount_twd):'尚未結算確認'}</h3><p>待收 {money(b.finalized?b.outstanding_twd:null)} · {b.channel==='cod'?'商品款貨到付款':'台新銀行／中信無卡／台灣 Pay'}</p><small>期限 {date(b.due_at)}</small>{(b.costs||[]).map((x,i)=><small key={i}>{({japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'})[x.kind]}：{money(x.amount_twd)}</small>)}{b.carry_twd>0&&<small>已含一補轉入尾款：{money(b.carry_twd)}</small>}<PaymentInstructions options={b.payment_options} amount={b.outstanding_twd} onReport={method=>Q({orderId:o.id,phase:b.phase,method})}/></article>)}</div>
  {o.shipments.map((x,i)=><p key={i}>{x.carrier} · {x.tracking}</p>)}
  {!['excluded','cancelled','review_pending'].includes(o.status)&&<button onClick={()=>Q({orderId:o.id})}>回報付款</button>}
