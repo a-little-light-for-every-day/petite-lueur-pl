@@ -4,6 +4,7 @@ import{applyBenefit}from './operations-benefits.js';
 import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{settleLegacyPayment}from './legacy-payment-settlement.js';
 import{applyService}from './operations-services.js';
+import{applyReadyOperation}from './ready-inventory.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
 const must=(ok,m,status=400)=>{if(!ok)throw failure(m,status);};
@@ -28,7 +29,7 @@ function validatePurchaseItems(s,items,advance,already=[]){
   must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;
  }
 }
-export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
+export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],ready_stock:[],ready_claims:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
 export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)+(b.legacy_settlement?.recognized_twd||0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
 // A payment report is only an unverified claim. Linking it to an EXISTING
@@ -104,6 +105,7 @@ function allocate(s,r,entries){
 }
 export function applyOperation(original,c,{now=new Date().toISOString(),id=crypto.randomUUID()}={}){
  const s=structuredClone(original);must(c&&typeof c.type==='string','操作類型不完整');let result={};const changed=[];
+ if(c.type.startsWith('ready_')){result=applyReadyOperation(s,c,{id,now});s.history.push({id,type:c.type,at:now,changed:[result.stock_id||result.order_id]});return{state:s,result};}
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
  if(c.type.startsWith('benefit_'))return applyBenefit(s,c,{id,now});
  switch(c.type){
@@ -215,6 +217,15 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(c.confirmed===true&&text(c.evidence),'請填寫主購確認結果及依據');
   must(!s.invoices.some(b=>b.order_id===o.id&&b.status!=='void'),'申請待審期間不得有付款帳款',409);
   o.status='active';o.review={approved_at:now,evidence:text(c.evidence,2000)};
+  if(o.ready_inventory===true){
+   for(const claim of (s.ready_claims||[]).filter(x=>x.order_id===o.id&&x.status==='held')){
+    const line=o.items.find(x=>x.id===claim.item_id),stock=(s.ready_stock||[]).find(x=>x.id===claim.stock_id);
+    must(line&&stock,'庫存認領紀錄不完整');claim.status='confirmed';claim.confirmed_at=now;
+    line.purchased=claim.quantity;
+    if(stock.location==='taiwan_stock'){line.overseas=claim.quantity;line.transit=claim.quantity;line.taiwan=claim.quantity;}
+    else if(stock.location==='japan_stock')line.overseas=claim.quantity;
+   }
+  }
   changed.push(o.id);result={order_id:o.id,status:o.status};break;
  }
  case 'order_promote':{
@@ -264,14 +275,14 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'first_invoice_issue':{
   const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
-  must(open(o)&&g,'訂單無法建立商品款帳款');
+  must(open(o)&&(g||o.ready_inventory===true),'訂單無法建立商品款帳款');
   must(c.confirmed===true&&text(c.evidence),'請確認官方採購證據與商品款');
   must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
   must(o.items.length>0&&o.items.every(l=>l.purchased===l.quantity&&l.quantity>0),'須所有品項已實際購得，未購得品項請勿提前請款');
-  must(o.items.every(l=>(s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0)>=l.quantity),'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
+  must(o.items.every(l=>o.ready_inventory===true?(s.ready_claims||[]).some(x=>x.order_id===o.id&&x.item_id===l.id&&x.status==='confirmed'&&x.quantity===l.quantity&&(s.ready_stock||[]).some(stock=>stock.id===x.stock_id&&stock.official_order_id)): (s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0)>=l.quantity),'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
   const expected=o.items.reduce((sum,l)=>sum+l.quantity*l.unit_price_twd,0);
   positive(expected);must(c.amount_twd===expected,'金額須與實際購得商品款一致');
-  const due=text(c.due_at,60)||g.payment_due_at;
+  const due=text(c.due_at,60)||g?.payment_due_at;
   must(due&&Number.isFinite(Date.parse(due)),'請確認付款期限');
   const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now};
   s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
@@ -411,7 +422,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const shipment={id,carrier:text(c.carrier),tracking:text(c.tracking),recipient:text(c.recipient),phone:text(c.phone),destination:text(c.destination,1000),items:c.items,cod_twd:cod,cod_claims,created_at:now};s.shipments.push(shipment);
   for(const oid of ids){const o=order(s,oid);if(!email(o.email))continue;const n={id:id+':'+oid,kind:'shipping',to:o.email,subject:'【Petite Lueur PL】出貨通知｜'+oid,body:`您好：\n\n訂單 ${oid} 已完成本次寄件登錄。\n配送方式：${shipment.carrier}\n物流單號：${shipment.tracking}\n${cod?'貨到付款金額請依寄件單與查單資訊核對。\n':''}\nPetite Lueur PL`,attachments:[],order_ids:[oid],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);}result={shipment_id:id};break;
  }
- case 'order_cancel':{const o=order(s,c.order_id);must(open(o)||['waitlisted','review_pending'].includes(o.status),'已完成或取消的訂單不可直接取消');must(c.confirmed===true&&text(c.reason),'請確認取消原因');must(o.items.every(l=>!l.purchased&&!l.overseas&&!l.transit&&!l.taiwan&&!l.shipped),'已有實購或到倉品項，請先處理官方取消／退款或售後');o.status='cancelled';for(const b of s.invoices.filter(x=>x.order_id===o.id)){b.status='void';for(const a of s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at))a.reversed_at=now;}changed.push(o.id);break;}
+ case 'order_cancel':{const o=order(s,c.order_id);must(open(o)||['waitlisted','review_pending'].includes(o.status),'已完成或取消的訂單不可直接取消');must(c.confirmed===true&&text(c.reason),'請確認取消原因');must(o.items.every(l=>!l.purchased&&!l.overseas&&!l.transit&&!l.taiwan&&!l.shipped),'已有實購或到倉品項，請先處理官方取消／退款或售後');if(o.ready_inventory===true)for(const claim of (s.ready_claims||[]).filter(x=>x.order_id===o.id&&x.status==='held')){claim.status='released';claim.released_at=now;claim.reason=text(c.reason);}o.status='cancelled';for(const b of s.invoices.filter(x=>x.order_id===o.id)){b.status='void';for(const a of s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at))a.reversed_at=now;}changed.push(o.id);break;}
  case 'refund_record':{const r=s.receipts.find(x=>x.id===c.receipt_id);must(r&&c.confirmed===true&&text(c.evidence)&&text(c.reference),'請確認實際退款及證據');positive(c.amount_twd);must(!s.refunds.some(x=>x.reference===text(c.reference)),'退款交易已登錄',409);must(c.amount_twd<=credit(s,r),'退款超過未分配餘額；已分配款項須先完成帳務調整');s.refunds.push({id,receipt_id:r.id,amount_twd:c.amount_twd,reference:text(c.reference),evidence:text(c.evidence,2000),created_at:now});break;}
  case 'card_budget':{must(c.confirmed===true&&text(c.evidence),'請確認真實卡額');money(c.available_twd);positive(c.limit_twd);s.config={...s.config,card_available_twd:c.available_twd,card_limit_twd:c.limit_twd,card_evidence:text(c.evidence,2000),card_updated_at:now};break;}
  case 'payment_accounts_config':{
