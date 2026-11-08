@@ -25,6 +25,8 @@ import { drainOutbox } from "./sync-outbox.js";
 import {qaPaymentStart,qaPaymentDrain,qaPaymentStatus} from './qa-payment-phases.js';
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
+import qaHtml from "./admin-qa-html.js";
+import qaBrowserJs from "./admin-qa-browser.js";
 import { createAdminSession, readAdminSession, revokeAdminSession, revokeAllAdminSessions, requireRecentAdminSession, stepUpScopeForOperationsCommand, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
 import { customerSessionCookie, readCustomerSessionCookie, clearCustomerSessionCookie } from "./customer-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
@@ -355,6 +357,15 @@ export default {
       if(url.pathname==='/storefront-cutover.js'&&request.method==='GET')return new Response(storefrontCutover,{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
       if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog((await loadOperations(env)).state),200,origin);
       if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
+      if(url.pathname==="/admin-qa"&&request.method==="GET"){
+        await authorizedOwner(request,env);
+        return new Response(qaHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"no-referrer","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});
+      }
+      if(url.pathname==="/admin-qa.js"&&request.method==="GET"){
+        await authorizedOwner(request,env);
+        return new Response(qaBrowserJs,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+      }
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
       if(url.pathname==="/api/operations/service-requests"&&request.method==="GET"){const email=await authorizedEmail(request,env);return response({ok:true,requests:customerServiceView((await loadOperations(env)).state,email)},200,origin);}
       if(['/api/operations/service-request','/api/operations/service-action'].includes(url.pathname)&&request.method==='POST'){
