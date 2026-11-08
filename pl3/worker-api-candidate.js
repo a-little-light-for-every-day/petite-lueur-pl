@@ -6,7 +6,7 @@ import{operationsMirrorStatus,drainOperationsMirror}from './operations-mirror.js
 import{exportOperationsBackup,restoreOperationsBackup,verifyOperationsBackup}from './operations-backup.js';
 import{customerServiceView}from './operations-services.js';
 import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} from './catalog-source.js';
-import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
+import { checkoutOperations,claimReadyInventory,readyPublicCatalog,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import { paymentInstructionsFor } from './payment-instructions.js';
@@ -348,6 +348,8 @@ export default {
         return response(await executeOperation({key:'service:'+body.key,version:current.version,command:{...body,type,authenticated_email:email}},email,env,{requestIdentity:{...body,type,authenticated_email:email}}),200,origin);
       }
       if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog((await loadOperations(env)).state),200,origin);
+      if(url.pathname==="/api/operations/ready-catalog"&&request.method==="GET")return response(readyPublicCatalog((await loadOperations(env)).state),200,origin);
+      if(url.pathname==="/api/operations/ready-claim"&&request.method==="POST")return response(await claimReadyInventory(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);

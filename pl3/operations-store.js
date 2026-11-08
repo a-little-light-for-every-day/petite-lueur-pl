@@ -3,12 +3,13 @@ import {starTraceAdmission} from './star-trace-admission.js';
 import {remainingGroupCapacity} from './group-capacity.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
+import {readyPublicCatalog} from './ready-inventory.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_commands(id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,actor TEXT NOT NULL,command_type TEXT NOT NULL,result_json TEXT NOT NULL CHECK(json_valid(result_json)),version INTEGER NOT NULL UNIQUE,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_mail(id TEXT PRIMARY KEY,notice_id TEXT NOT NULL UNIQUE,snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN('queued','sending','sent','failed','unknown','void')),approved_by TEXT NOT NULL,approved_at TEXT NOT NULL,gmail_message_id TEXT,gmail_thread_id TEXT,error_code TEXT,claimed_at TEXT,sent_at TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_attachments(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,base64_data TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`;
 export const opsError=(m,status=400)=>Object.assign(new Error(m),{status});
-export const entityKinds=['service_requests','products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
+export const entityKinds=['service_requests','products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports','ready_stock','ready_claims'];
 const entitySchema="CREATE TABLE IF NOT EXISTS pl_ops_entities(kind TEXT NOT NULL,id TEXT NOT NULL,document_json TEXT NOT NULL CHECK(json_valid(document_json)),updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(kind,id));CREATE TABLE IF NOT EXISTS pl_ops_entity_history(command_id TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL,before_json TEXT,after_json TEXT,actor TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(command_id,kind,entity_id));";
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 export async function installOperations(env){for(const statement of (schema+entitySchema+mirrorSchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
@@ -109,6 +110,18 @@ export function publicOperationsCatalog(state){
  const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
  const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&(p.shipping_units_confirmed!==false||p.manual_review_required===true)&&groups.some(g=>g.id===p.group_id)&&remainingGroupCapacity(state,p.group_id)!==0);
  return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_units_confirmed,manual_review_required})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_pending:shipping_units_confirmed===false,manual_review_required:shipping_units_confirmed===false&&manual_review_required===true}))};
+}
+export {readyPublicCatalog};
+export async function claimReadyInventory(body,email,env){
+ if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('申請識別碼無效');
+ if(body.adult_confirmed!==true||body.terms_confirmed!==true)throw opsError('請確認成年及購物須知');
+ const command={type:'ready_claim',email,name:body.name,items:body.items,acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-ready-stock-20261108',accepted_at:new Date().toISOString()}};
+ const identity={...command,acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-ready-stock-20261108'}};
+ for(let attempt=0;attempt<4;attempt++){
+  const current=await loadOperations(env);
+  try{return await executeOperation({key:'ready-claim:'+body.key,version:current.version,command},email,env,{requestIdentity:identity});}
+  catch(error){if(error.status!==409||attempt===3)throw error;}
+ }
 }
 export async function checkoutOperations(body,email,env){
  if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
