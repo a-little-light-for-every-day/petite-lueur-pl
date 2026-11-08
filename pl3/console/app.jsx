@@ -121,6 +121,12 @@ function Root(){
   api(path).then(()=>{T(admin?'':CUSTOMER_COOKIE_SESSION);R(true)}).catch(()=>{}).finally(()=>C(true));
  },[admin]);
  useEffect(()=>{
+  if(!admin||!ready)return;
+  // Accept only this fixed owner-only destination; ignore arbitrary return URLs.
+  const destination=new URLSearchParams(location.search).get('return_to');
+  if(destination==='/admin-qa')location.replace('/admin-qa');
+ },[admin,ready]);
+ useEffect(()=>{
   if(!admin)return;
   // A 428 asks for a new OTP proof, not a logout. Keep Console and its unsaved form mounted.
   const requireNewOtp=()=>U(true);
