@@ -1,3 +1,4 @@
+import {reportMailFailure} from "./mail-failure-alert.js";
 import{legacyOperationsCatalog}from './storefront-handoff.js';
 import storefrontPreview from './storefront-preview-html.js';
 import storefrontCutover from './storefront-cutover-source.js';
@@ -155,6 +156,8 @@ async function otpRequest(body,env,request) {
       await env.DB.prepare("UPDATE email_rate_limits SET count=MAX(0,count-1) WHERE email=? AND purpose=? AND window_start=?")
         .bind(claim.key,claim.purpose,windowStart).run();
     }
+    try { await reportMailFailure(env,"otp",error?.status===503?"GMAIL_DELIVERY_UNAVAILABLE":"OTP_MAIL_FAILURE"); }
+    catch(alertError){console.error("PL3 mail alert handling failed",String(alertError?.message||"unknown").slice(0,60));}
     throw error;
   }
   return {ok:true,message:"Verification code sent"};
