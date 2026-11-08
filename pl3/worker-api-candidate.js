@@ -145,7 +145,18 @@ async function otpRequest(body,env,request) {
   const expires=new Date(Date.now()+10*60000).toISOString();
   const hash=await digest(env.OTP_PEPPER+":"+email+":"+code);
   await env.DB.prepare("INSERT INTO otp_codes(id,email,code_hash,expires_at) VALUES(?,?,?,?)").bind(id,email,hash,expires).run();
-  await sendOtpViaGmail(env,email,code);
+  try {
+    await sendOtpViaGmail(env,email,code);
+  } catch (error) {
+    // A failed Gmail delivery must not burn the customer's OTP or hourly quota.
+    // Delete only this attempt; preserve other in-flight or previously sent codes.
+    await env.DB.prepare("DELETE FROM otp_codes WHERE id=?").bind(id).run();
+    for (const claim of claims) {
+      await env.DB.prepare("UPDATE email_rate_limits SET count=MAX(0,count-1) WHERE email=? AND purpose=? AND window_start=?")
+        .bind(claim.key,claim.purpose,windowStart).run();
+    }
+    throw error;
+  }
   return {ok:true,message:"Verification code sent"};
 }
 async function otpVerify(body,env) {
