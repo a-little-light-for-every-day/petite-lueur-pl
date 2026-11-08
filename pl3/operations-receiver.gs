@@ -76,6 +76,10 @@ function opsNotionSafeRebase_(page,pr,nextProps){
  // Never allow these exceptions for payment, price, or fulfillment fields.
  return Object.keys(expected).every(k=>opsPropsMatch_(page,{[k]:expected[k]})||
   (pr.kind==='order'&&k==='狀態'&&nextProps&&nextProps['狀態']&&opsPropsMatch_(page,{'狀態':nextProps['狀態']}))||
+  // A settled PL3 invoice may already be reflected in Notion before the stale snapshot catches up.
+  // Accept only exact convergence to the authoritative PL3 projection, backed by an allocation.
+  (pr.kind==='order'&&['PL3一補待收','PL3二補待收','付款狀態'].includes(k)&&nextProps&&nextProps[k]&&
+   Array.isArray(pr.document.allocations)&&pr.document.allocations.length>0&&opsPropsMatch_(page,{[k]:nextProps[k]}))||
   (pr.kind==='order'&&['訂購人姓名','顧客姓名','結構化商品明細'].includes(k)&&nextProps&&nextProps[k]&&expected[k]&&
    !!expected[k].rich_text?.map(x=>x.text.content).join('')&&
    expected[k].rich_text.map(x=>x.text.content).join('')===nextProps[k].rich_text.map(x=>x.text.content).join('')&&
