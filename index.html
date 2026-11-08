@@ -2670,6 +2670,15 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
   }
   function deadlineExpired(d){const ms=deadlineMs(d);return Number.isFinite(ms)&&Date.now()>=ms}
   function deadlineSoon(d,hours=72){const ms=deadlineMs(d);if(!Number.isFinite(ms))return false;const left=ms-Date.now();return left>0&&left<=hours*3600000}
+  function deadlineDisplayTaiwan(d){
+    const ms=deadlineMs(d);
+    if(!Number.isFinite(ms))return String(d||'');
+    const values=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+      timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(ms).map(({type,value})=>[type,value]));
+    return `${values.year}/${values.month}/${values.day} ${values.hour}:${values.minute}（台灣時間）`;
+  }
   function productById(id){return products.find(p=>String(p.id)===String(id))}
 
 
@@ -3420,7 +3429,7 @@ font-size:12px;font-weight:900;box-shadow:0 10px 30px rgba(57,40,36,.22);text-de
         ${!isSelection(p)?`<div class="detailRow"><div class="detailLabel">國際運費換算</div><div class="detailValue">${shares == null ? '待確認（依實際入庫包裝核定）' : shares + ' 份'}</div></div>`:''}
         ${!isSelection(p)&&rate?`<div class="detailRow"><div class="detailLabel">${isOnsite(p)?'現地代購換算':'商品款換算'}</div><div class="detailValue">單件 ¥${Math.round(Number(p.priceJpy)).toLocaleString('ja-JP')} × ${rate.toFixed(2)}，無條件進位至 NT$5<small>${isOnsite(p)?'此倍率由本次日本現地代購團次統一設定。':'依單件商品的官方日圓售價分級，不是依商品尺寸或重量。'}</small></div></div>`:''}
         ${isOnsite(p)?`<div class="detailRow"><div class="detailLabel">現地可接</div><div class="detailValue">${Number.isFinite(Number(p.remaining))?`目前剩 ${Number(p.remaining)} 件`:`以主購現場確認為準`}<small>送出訂購申請不代表已成功購得；以主購現場實際拿到商品為準。</small></div></div>`:''}
-        ${p.preorderDeadline?`<div class="detailRow"><div class="detailLabel">預購截止</div><div class="detailValue">${esc(p.preorderDeadlineLabel||p.preorderDeadline)}</div></div>`:''}
+        ${p.preorderDeadline?`<div class="detailRow"><div class="detailLabel">PL 收單截止</div><div class="detailValue">${esc(p.preorderDeadlineLabel||deadlineDisplayTaiwan(p.preorderDeadline))}</div></div>`:''}
         ${isSelection(p)?`<div class="detailRow"><div class="detailLabel">販售方式</div><div class="detailValue"><div class="selectionStatusLine">${productStatuses(p).filter(s=>['現貨','少量現貨','預購中'].includes(s)).map(s=>`<span class="selectionStatusPill">${esc(s==='預購中'?'預購':s)}</span>`).join('')}</div><small>${Number(p.stockRemaining||0)>0?`目前現貨 ${Number(p.stockRemaining)} 件。`:''}${p.preorderEnabled?`現貨售完後仍可預購${p.selectionWait?`，等待約 ${esc(p.selectionWait)}`:''}。`:''}</small></div></div>`:''}
         ${isSelection(p)&&p.preorderEnabled&&p.selectionPreorderLimit?`<div class="detailRow"><div class="detailLabel">預購接單上限</div><div class="detailValue">${Number(p.selectionPreorderLimit)} 件</div></div>`:''}
         ${!isSelection(p)&&p.expectedShip?`<div class="detailRow"><div class="detailLabel">官方出貨</div><div class="detailValue">${esc(p.expectedShip)}</div></div>`:''}
