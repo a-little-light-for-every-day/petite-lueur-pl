@@ -359,7 +359,14 @@ export default {
       if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
       // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
       if(url.pathname==="/admin-qa"&&request.method==="GET"){
-        await authorizedOwner(request,env);
+        try {
+          await authorizedOwner(request,env);
+        } catch (error) {
+          if (error.status !== 401) throw error;
+          // Only the fixed QA path is accepted as a post-login destination.
+          // Do not expose the owner-only HTML to an unauthenticated request.
+          return Response.redirect(new URL("/admin-operations?return_to=%2Fadmin-qa",request.url),302);
+        }
         return new Response(qaHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"no-referrer","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});
       }
       if(url.pathname==="/admin-qa.js"&&request.method==="GET"){
