@@ -80,7 +80,7 @@ export function makeNotice(s,ids,kind,id,now){
  const deadlines=[...new Set(bills.map(x=>x.due_at).filter(Boolean))].map(taiwanDeadline);
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
- const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託無卡存款及台灣 Pay。請至下方查單頁驗證訂購 Email，選擇銀行匯款或中國信託無卡存款後，即可查看當次付款帳號；台灣 Pay 請洽官方確認收款資訊。付款完成後，請在同頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
+ const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託銀行轉帳、中國信託無卡存款及台灣 Pay。請至下方查單頁驗證訂購 Email，選擇台新銀行匯款、中國信託銀行轉帳或中國信託無卡存款後，即可查看當次付款帳號；台灣 Pay 請洽官方確認收款資訊。付款完成後，請在同頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
  n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 // A bank-confirmed, fully allocated invoice creates a REVIEW DRAFT only.
@@ -304,7 +304,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'payment_report':{
   const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);
   positive(c.amount_twd);
-  must(['台新銀行','台灣 Pay','中國信託無卡存款','銀行匯款'].includes(c.method),'付款方式無效');
+  must(['台新銀行','台灣 Pay','中國信託銀行轉帳','中國信託無卡存款','銀行匯款'].includes(c.method),'付款方式無效');
   must(!c.last5||/^\d{5}$/.test(c.last5),'末五碼格式錯誤');
   const reportPhase=c.phase==null||c.phase===''?null:c.phase;
   must(reportPhase===null||['first','second'].includes(reportPhase),'付款階段無效');
