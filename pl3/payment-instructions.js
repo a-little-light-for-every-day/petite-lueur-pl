@@ -12,6 +12,6 @@ export function paymentInstructionsFor(s,order,bill,now=Date.now()){
  const valid=x=>typeof x==='string'&&/^\d{10,16}$/.test(x);
  return [
   ...(valid(accounts.bank_transfer)?[{method:'銀行匯款',bank:'台新銀行',bank_code:'812',account:accounts.bank_transfer}]:[]),
-  ...(valid(accounts.ctbc_cash)?[{method:'中國信託無卡存款',bank:'中國信託',bank_code:'822',account:accounts.ctbc_cash}]:[])
+  ...(valid(accounts.ctbc_cash)?[{method:'中國信託銀行轉帳',bank:'中國信託',bank_code:'822',account:accounts.ctbc_cash},{method:'中國信託無卡存款',bank:'中國信託',bank_code:'822',account:accounts.ctbc_cash}]:[])
  ];
 }
