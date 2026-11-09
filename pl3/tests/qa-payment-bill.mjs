@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {newOperations} from '../operations-domain.js';
-import {qaPaymentBillForCustomer,qaPaymentBillSet,qaPaymentBillStatus} from '../qa-payment-bill.js';
+import {qaPaymentBillForCustomer,qaPaymentBillSet,qaPaymentBillStatus,qaPaymentReport} from '../qa-payment-bill.js';
 
 function fixture(){
  const db=new DatabaseSync(':memory:');
- const prepare=sql=>{let args=[];const q={bind(...values){args=values;return q},async run(){const r=db.prepare(sql).run(...args);return{meta:{changes:Number(r.changes)}}},async first(){return db.prepare(sql).get(...args)||null}};return q;};
+ const prepare=sql=>{let args=[];const q={bind(...values){args=values;return q},async run(){const r=db.prepare(sql).run(...args);return{meta:{changes:Number(r.changes)}}},async first(){return db.prepare(sql).get(...args)||null},async all(){return{results:db.prepare(sql).all(...args)}}};return q;};
  const env={DB:{prepare},PL3_QA_PAYMENT_ENABLED:'true',PL3_QA_PAYMENT_EMAIL:'pl3-qa@example.test'};
  const state=newOperations();state.config.payment_accounts={bank_transfer:'12345678901234',ctbc_cash:'987654321012'};
  return{db,env,state};
@@ -34,5 +34,27 @@ test('QA bill stays unavailable unless the server QA gate and test identity are 
  const{db,env,state}=fixture();env.PL3_QA_PAYMENT_ENABLED='false';
  await assert.rejects(qaPaymentBillSet(env,'notified'),/未啟用/);
  assert.deepEqual(await qaPaymentBillForCustomer(env,state,env.PL3_QA_PAYMENT_EMAIL),null);
+ db.close();
+});
+
+test('customer QA report stays in isolated table and never enters operational ledger',async()=>{
+ const{db,env,state}=fixture();
+ await qaPaymentBillSet(env,'notified');
+ const command={order_id:'PL3-QA-PAYMENT-DISPLAY',phase:'first',amount_twd:321,method:'中國信託銀行轉帳',paid_at:'2026-11-09T01:00:00.000Z',last5:'12345'};
+ const body={key:'qa-report-test-0001',command};
+ const result=await qaPaymentReport(env,state.config?.email||env.PL3_QA_PAYMENT_EMAIL,body);
+ assert.equal(result.result.status,'pending');
+ assert.equal(state.reports.length,0);
+ let customer=await qaPaymentBillForCustomer(env,state,env.PL3_QA_PAYMENT_EMAIL);
+ assert.equal(customer.reports.length,1);
+ assert.equal(customer.reports[0].status,'pending');
+ assert.equal(customer.invoices[0].outstanding_twd,321);
+ await assert.rejects(qaPaymentReport(env,env.PL3_QA_PAYMENT_EMAIL,{...body,key:'qa-report-test-0002'}),/相同回報/);
+ await qaPaymentBillSet(env,'settled');
+ customer=await qaPaymentBillForCustomer(env,state,env.PL3_QA_PAYMENT_EMAIL);
+ assert.equal(customer.reports[0].status,'confirmed');
+ assert.equal(customer.invoices[0].outstanding_twd,0);
+ assert.deepEqual(customer.invoices[0].payment_options,[]);
+ assert.equal(state.receipts.length,0);
  db.close();
 });
