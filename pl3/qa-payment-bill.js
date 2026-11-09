@@ -39,7 +39,7 @@ export async function qaPaymentReport(env,customer,body,now=new Date().toISOStri
  if(current.bill?.stage!=='notified')fail('此測試帳單目前不可回報',409);
  if(!['銀行匯款','中國信託銀行轉帳','中國信託無卡存款','台灣 Pay'].includes(c.method)||c.phase!=='first'||c.amount_twd!==TEST_AMOUNT)fail('測試付款資料不符',400);
  if(typeof c.paid_at!=='string'||!Number.isFinite(Date.parse(c.paid_at)))fail('付款時間無效',400);
- if(c.last5&&!/^\\d{5}$/.test(c.last5))fail('末五碼格式無效',400);
+ if(c.last5&&!/^\d{5}$/.test(c.last5))fail('末五碼格式無效',400);
  const id=String(body.key||'');
  if(!/^[a-zA-Z0-9-]{8,100}$/.test(id))fail('測試回報識別碼無效',400);
  await env.DB.prepare(REPORT_TABLE).run();
