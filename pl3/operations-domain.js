@@ -154,7 +154,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
    must(sourceId&&sourceId===String(x.id).trim()&&name&&Number.isSafeInteger(x.price_twd)&&x.price_twd>0,'來源商品編號、名稱或售價不完整');
    must(!seen.has(sourceId),'同次匯入含重複來源商品編號：'+sourceId);seen.add(sourceId);
    let parsed;try{parsed=new URL(url);}catch{throw failure('商品來源網址無效：'+sourceId);}
-   must(parsed.protocol==='https:'&&!/animate/i.test(url),'商品須有 HTTPS 官方來源且不得使用 Animate：'+sourceId);
+   must(parsed.protocol==='https:','商品須有 HTTPS 官方來源：'+sourceId);
    const image=text(x.image_url,2000);
    if(image){let imageURL;try{imageURL=new URL(image);}catch{throw failure('圖片來源網址無效：'+sourceId);}
     must(imageURL.protocol==='https:','圖片須為 HTTPS：'+sourceId);
@@ -179,7 +179,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'product_save':{
   must(s.groups.some(g=>g.id===c.group_id),'請指定有效團次');must(text(c.name)&&text(c.sku),'商品名稱與官方貨號必填');money(c.price_twd);must(c.price_twd>0,'售價須大於0');if(c.quantity_limit!==null&&c.quantity_limit!==undefined)positive(c.quantity_limit);
   const validURL=v=>{try{return new URL(v).protocol==='https:'}catch{return false}};
-  must(validURL(c.source_url),'請填官方HTTPS來源');must(!/animate/i.test(c.source_url),'Animate不列為商業採購通路');if(c.image_url)must(validURL(c.image_url),'圖片必須是HTTPS網址');
+  must(validURL(c.source_url),'請填官方HTTPS來源');if(c.image_url)must(validURL(c.image_url),'圖片必須是HTTPS網址');
   if(c.published)must(c.confirmed===true&&(!c.image_url||c.image_official===true),'上架前須確認商品內容；有圖時須為官方原圖');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
   const shippingConfirmed=c.shipping_units_confirmed!==false;
@@ -380,7 +380,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'hold_release':{const o=order(s,c.order_id),l=o.items.find(x=>x.id===c.item_id);must(l?.hold&&c.confirmed===true&&text(c.evidence),'請確認解除條件與證據');l.hold={...l.hold,released_at:now,release_evidence:text(c.evidence,2000)};break;}
  case 'purchase_record':{
-  must(text(c.official_order)&&text(c.shop)&&text(c.evidence),'請填官方訂單、通路與證據');must(!/animate|アニメイト/i.test(c.shop),'此通路不列為PL商業代購採購通路');must(['JPY','KRW','TWD'].includes(c.currency),'幣別無效');money(c.original_amount);money(c.actual_twd);must(Array.isArray(c.items)&&c.items.length>0,'請指定實購品項');
+  must(text(c.official_order)&&text(c.shop)&&text(c.evidence),'請填官方訂單、通路與證據');must(['JPY','KRW','TWD'].includes(c.currency),'幣別無效');money(c.original_amount);money(c.actual_twd);must(Array.isArray(c.items)&&c.items.length>0,'請指定實購品項');
   must(!s.purchases.some(p=>p.shop===text(c.shop)&&p.official_order===text(c.official_order)),'官方訂單已登錄，請勿重複',409);
   const budgetMode=c.budget_mode||'current';
   must(['current','historical'].includes(budgetMode),'信用卡預算處理方式無效');

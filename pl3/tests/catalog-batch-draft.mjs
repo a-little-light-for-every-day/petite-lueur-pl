@@ -45,7 +45,7 @@ test('reject mismatched group, duplicate SKU, changed source record, and public 
  assert.throws(()=>parseDraftCatalogJSON(JSON.stringify([sample,{...sample}]),groupId),/重複/);
  assert.throws(()=>parseDraftCatalogJSON(JSON.stringify([{...sample,group_id:'WRONG'}]),groupId),/團次 ID/);
  assert.throws(()=>parseDraftCatalogJSON(JSON.stringify([{...sample,published:true}]),groupId),/草稿/);
- assert.throws(()=>parseDraftCatalogJSON(JSON.stringify([{...sample,source_url:'https://www.animate-onlineshop.jp/'}]),groupId),/Animate/);
+ assert.equal(parseDraftCatalogJSON(JSON.stringify([{...sample,source_url:'https://www.animate-onlineshop.jp/'}]),groupId).products[0].source_url,'https://www.animate-onlineshop.jp/');
  const {state:groupState}=apply(newOperations(),{type:'group_save',id:groupId,title:'預購',status:'draft'});
  const first=apply(groupState,{type:'catalog_batch_draft',group_id:groupId,confirmed:true,products:[sample]});
  assert.throws(()=>apply(first.state,{type:'catalog_batch_draft',group_id:groupId,confirmed:true,
