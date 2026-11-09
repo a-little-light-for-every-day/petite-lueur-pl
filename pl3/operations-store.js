@@ -1,7 +1,7 @@
 import {reportMailFailure} from "./mail-failure-alert.js";
 import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
 import {starTraceAdmission} from './star-trace-admission.js';
-import {remainingGroupCapacity} from './group-capacity.js';
+import {remainingGroupCapacity,groupAcceptingApplications} from './group-capacity.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -107,7 +107,7 @@ export async function saveOperationsAttachment(body,actor,env){
 }
 
 export function publicOperationsCatalog(state){
- const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
+ const now=Date.now();const groups=state.groups.filter(g=>groupAcceptingApplications(g,now));
  const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&(p.shipping_units_confirmed!==false||p.manual_review_required===true)&&groups.some(g=>g.id===p.group_id)&&remainingGroupCapacity(state,p.group_id)!==0);
  return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_units_confirmed,manual_review_required})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_pending:shipping_units_confirmed===false,manual_review_required:shipping_units_confirmed===false&&manual_review_required===true}))};
 }

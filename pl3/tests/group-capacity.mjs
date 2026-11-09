@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { newOperations } from '../operations-domain.js';
 import { installOperations, loadOperations, checkoutOperations, executeOperation, publicOperationsCatalog } from '../operations-store.js';
 import { legacyOperationsCatalog } from '../storefront-handoff.js';
-import { MAYLA_VIOLET_SKIRT_GROUP, remainingGroupCapacity } from '../group-capacity.js';
+import { MAYLA_VIOLET_SKIRT_GROUP, HANAYUME_23_CLAIM_GROUP, remainingGroupCapacity } from '../group-capacity.js';
 
 function makeEnvironment() {
  const db = new DatabaseSync(':memory:');
@@ -80,4 +80,26 @@ test('simultaneous buyers cannot reserve four MAYLA skirts across separate varia
   assert.equal(results.filter(x => x.status === 'rejected').length, 1);
   assert.equal(remainingGroupCapacity((await loadOperations(env)).state, MAYLA_VIOLET_SKIRT_GROUP), 1);
  } finally { db.close(); }
+});
+
+test('five already-purchased Hanayume copies can be claimed without a fabricated cutoff and never oversell', async () => {
+ const {env,db}=makeEnvironment();
+ try {
+  await installOperations(env);
+  const state=newOperations();
+  state.groups=[{id:HANAYUME_23_CLAIM_GROUP,title:'花とゆめ23號已預購認領',status:'open',deadline:null}];
+  state.products=[{id:'hanayume-23',group_id:HANAYUME_23_CLAIM_GROUP,name:'花與夢第23號',sku:'ANIMATE-HANAYUME-2026-23-CLAIM',variant:'安美通販限定特典版',price_twd:170,shipping_units_confirmed:false,manual_review_required:true,quantity_limit:5,status:'available',published:true}];
+  db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(state));
+  assert.equal(publicOperationsCatalog(state).products.length,1);
+  assert.equal(legacyOperationsCatalog(state).products.length,1);
+  const submit=(key,n)=>checkoutOperations({key,group_id:HANAYUME_23_CLAIM_GROUP,name:'QA',items:[{product_id:'hanayume-23',quantity:n}],adult_confirmed:true,terms_confirmed:true,review_only:true},key+'@example.test',env);
+  await submit('hanayume-claim-00001',3);
+  await assert.rejects(()=>submit('hanayume-claim-00002',3),/剩餘接單名額不足/);
+  await submit('hanayume-claim-00003',2);
+  const full=(await loadOperations(env)).state;
+  assert.equal(remainingGroupCapacity(full,HANAYUME_23_CLAIM_GROUP),0);
+  assert.equal(publicOperationsCatalog(full).products.length,0);
+  assert.equal(legacyOperationsCatalog(full).products.length,0);
+  await assert.rejects(()=>submit('hanayume-claim-00004',1),/本團已額滿/);
+ } finally {db.close();}
 });
