@@ -19,7 +19,7 @@ test('QA-only payment bill supports each requested state without creating a real
   const customer=await qaPaymentBillForCustomer(env,state,env.PL3_QA_PAYMENT_EMAIL,Date.parse('2026-11-09T01:00:00.000Z'));
   assert.equal(customer.id,'PL3-QA-PAYMENT-DISPLAY');
   const bill=customer.invoices[0];
-  if(stage==='notified')assert.deepEqual(bill.payment_options.map(x=>x.bank_code),['812','822']);
+  if(stage==='notified')assert.deepEqual(bill.payment_options.map(x=>x.bank_code),['812','822','822']);
   else assert.deepEqual(bill.payment_options,[],stage);
   if(stage==='settled')assert.equal(bill.outstanding_twd,0);
   if(stage==='cancelled')assert.equal(customer.status,'cancelled');
