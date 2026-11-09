@@ -28,7 +28,7 @@ test('admin-only account configuration stores two accounts without leaking full 
 test('authenticated order view can offer only that order’s current, notified, unpaid invoice',()=>{
  const{state,order,bill}=fixture();
  const options=paymentInstructionsFor(state,order,bill,Date.parse(NOW));
- assert.deepEqual(options.map(o=>[o.method,o.bank_code,o.account]),[['銀行匯款','812',BANK],['中國信託無卡存款','822',CTBC]]);
+ assert.deepEqual(options.map(o=>[o.method,o.bank_code,o.account]),[['銀行匯款','812',BANK],['中國信託銀行轉帳','822',CTBC],['中國信託無卡存款','822',CTBC]]);
  assert.deepEqual(paymentInstructionsFor(state,{...order,id:'NOT-OWNED'},bill,Date.parse(NOW)),[]);
  for(const status of ['cancelled','excluded','completed','waitlisted','review_pending'])assert.deepEqual(paymentInstructionsFor(state,{...order,status},bill,Date.parse(NOW)),[]);
  for(const change of [{notified:false},{finalized:false},{status:'void'},{channel:'cod'},{due_at:'2026-11-06T05:00:00Z'},{due_at:'invalid'}]){
