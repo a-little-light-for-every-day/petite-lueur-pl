@@ -38,7 +38,7 @@ export function PaymentInstructions({options,amount,onReport}){
  return <section className="payment-instructions" aria-label="付款帳號">
   <strong>選擇付款方式，查看收款帳號</strong>
   <label className="field"><span>付款方式</span><select value={method} onChange={e=>{M(e.target.value);C('')}}>
-   <option value="">請選擇</option>{options.map(o=><option value={o.method} key={o.method}>{o.method==='銀行匯款'?'銀行匯款（台新銀行）':'中國信託無卡存款'}</option>)}
+   <option value="">請選擇</option>{options.map(o=><option value={o.method} key={o.method}>{o.method==='銀行匯款'?'銀行匯款（台新銀行）':o.method}</option>)}
   </select></label>
   {selected&&<div className="account-detail">
    <small>銀行名稱／代碼</small><b>{selected.bank}（{selected.bank_code}）</b>
