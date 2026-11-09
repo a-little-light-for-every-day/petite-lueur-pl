@@ -262,6 +262,20 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'invoice_confirm':{
   const b=invoice(s,c.invoice_id);must(b.phase==='first'&&!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'此帳款請使用既有通知／款項調整流程',409);must(c.confirmed===true&&text(c.evidence),'請確認報價與來源');positive(c.amount_twd);const invoicedOrder=order(s,b.order_id),expected=invoicedOrder.group_id===BENEFIT_GROUP?invoicedOrder.items.reduce((n,l)=>n+l.purchased*l.unit_price_twd,0):invoicedOrder.goods_twd;must(c.amount_twd===expected,'金額須與實際採購商品款一致');b.amount_twd=c.amount_twd;b.finalized=true;b.evidence=text(c.evidence,2000);changed.push(b.order_id);break;
  }
+ case 'invoice_due_extend':{
+  const b=invoice(s,text(c.invoice_id,200)),o=order(s,b.order_id);
+  must(c.confirmed===true&&text(c.reason,2000),'請確認並填寫延長付款期限原因');
+  must(open(o)&&b.status==='open'&&b.finalized&&b.channel!=='cod'&&balance(s,b)>0,'此帳款已結清、取消或不可延期',409);
+  const previous=text(c.expected_due_at,60),next=text(c.due_at,60);
+  must(previous===b.due_at,'帳款期限已被其他操作更新，請重新整理',409);
+  must(Number.isFinite(Date.parse(next))&&Date.parse(next)>Date.parse(now)&&Date.parse(next)>Date.parse(previous),'新期限須晚於原期限且為未來時間');
+  b.due_at=next;
+  b.deadline_changes=b.deadline_changes||[];
+  b.deadline_changes.push({id,at:now,from:previous,to:next,reason:text(c.reason,2000)});
+  // Sent notices are immutable. Unsigned drafts with stale dependencies are invalidated.
+  changed.push(b.order_id);
+  result={invoice_id:b.id,previous_due_at:previous,due_at:next,notice_created:false};break;
+ }
  case 'first_invoice_issue':{
   const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
   must(open(o)&&g,'訂單無法建立商品款帳款');

@@ -51,6 +51,25 @@ test('confirmed preorder creates first-stage bill while group stays open, withou
  assert.match(f.state.notices[0].body,/付款期限：2026\/11\/8 20:00（台灣時間）/);
  assert.doesNotMatch(f.state.notices[0].body,/2026-11-08T12:00:00/);
 });
+test('owner can extend only an outstanding bill and history remains intact',()=>{
+ const f=fixture(),billed=f.go({type:'first_invoice_preorder_issue',order_id:f.o,amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'official preorder'});
+ const b=f.state.invoices[0];f.go({type:'notice_draft',invoice_ids:[b.id]});
+ const original=f.state.notices[0];original.status='sent';original.gmail_message_id='sent-original';
+ const command={type:'invoice_due_extend',invoice_id:billed.invoice_id,expected_due_at:b.due_at,due_at:'2026-11-13T15:59:00.000Z',reason:'主購同意延長至 11/13 23:59',confirmed:true};
+ const result=f.go(command);
+ assert.equal(result.notice_created,false);
+ assert.equal(f.state.invoices.length,1);
+ assert.equal(f.state.invoices[0].due_at,'2026-11-13T15:59:00.000Z');
+ assert.equal(f.state.invoices[0].amount_twd,890);
+ assert.equal(f.state.invoices[0].deadline_changes[0].from,'2026-11-08T12:00:00Z');
+ assert.equal(f.state.notices[0].status,'sent');assert.equal(f.state.notices[0].gmail_message_id,'sent-original');
+ assert.throws(()=>f.go(command),/重新整理/);
+ assert.throws(()=>f.go({...command,expected_due_at:f.state.invoices[0].due_at,due_at:'2026-11-07T12:00:00Z'}),/新期限/);
+ f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:890,method:'銀行匯款'});
+ assert.equal(f.state.reports[0].status,'pending');assert.equal(balance(f.state,f.state.invoices[0]),890);
+ f.go({type:'receipt_confirm',customer_email:'customer@example.com',amount_twd:890,kind:'bank_confirmed',transaction_id:'bank-extend',evidence:'bank statement',confirmed:true,allocations:[{invoice_id:b.id,amount_twd:890}]});
+ assert.throws(()=>f.go({...command,expected_due_at:f.state.invoices[0].due_at,due_at:'2026-11-14T15:59:00Z'}),/已結清/);
+});
 test('preorder billing rejects unreviewed, stale, mismatched, and previously purchased orders',()=>{
  const c={type:'first_invoice_preorder_issue',order_id:'ORDER-A',amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'官方已開放預購'};
  let f=fixture();assert.throws(()=>f.go({...c,amount_twd:240}),/商品款一致/);
