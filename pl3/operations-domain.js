@@ -314,6 +314,19 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  case 'notice_approve':{
   const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');must(n.status==='draft'&&n.version===c.version,'通知版本已變動，請重新審核',409);must(c.confirmed===true&&c.content===noticeContent(n),'請確認目前完整收件對象與內文',409);must(n.dependency===noticeDependency(s,n),'帳款／訂單已更新，請重新產生通知',409);must(email(n.to)&&!/[\r\n]/.test(n.subject),'寄送資訊無效');n.status='queued';n.approved_at=now;result={notice_id:n.id,queue:true};break;
  }
+ case 'notice_backfill_sent':{
+  const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');
+  must(['draft','failed','unknown'].includes(n.status),'已核准、寄送中或已寄出的通知不可回填',409);
+  must(c.version===n.version&&c.content===noticeContent(n),'通知內容或版本已變動，請重新核對',409);
+  must(c.confirmed===true&&text(c.evidence,2000)?.length>=8,'請提供 Gmail 寄件備查證據並確認');
+  must(typeof c.gmail_message_id==='string'&&/^[A-Za-z0-9_-]{8,160}$/.test(c.gmail_message_id),'Gmail 郵件 ID 格式無效');
+  must(!s.notices.some(x=>x.id!==n.id&&x.gmail_message_id===c.gmail_message_id),'這個 Gmail 郵件 ID 已綁定其他通知',409);
+  must(n.dependency===noticeDependency(s,n),'帳款／訂單資料已更新，請重新核對通知',409);
+  n.status='sent';n.gmail_message_id=c.gmail_message_id;n.gmail_thread_id=text(c.gmail_thread_id,160)||null;
+  n.sent_at=c.sent_at;n.backfill_evidence=text(c.evidence,2000);n.backfilled_at=now;n.error_code=null;
+  if(['payment','reminder'].includes(n.kind))for(const bid of n.invoice_ids){const b=s.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
+  result={notice_id:n.id,backfilled:true};break;
+ }
  case 'notice_cancel':{const n=s.notices.find(x=>x.id===c.notice_id);must(n&&['draft','queued','failed'].includes(n.status),'通知不可撤銷',409);n.status='void';break;}
  case 'payment_report':{
   const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);

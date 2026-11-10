@@ -42,6 +42,22 @@ test('sending a paid confirmation alone does not mark the payment notice as sent
 function fixture(){let s=newOperations();let n=0;const go=c=>{const r=applyOperation(s,c,{id:'test-'+(++n),now:NOW});s=r.state;return r.result};const g=go({type:'group_save',title:'測試團次',payment_due_at:'2026-11-05T12:00:00Z'}).group_id;const o=go({type:'order_save',id:'ORDER-A',name:'測試顧客',email:'customer@example.com',group_id:g,items:[{name:'測試商品',sku:'A',quantity:2,unit_price_twd:445,shipping_units:1}]}).order_id;return{get state(){return s},go,g,o};}
 function dbEnv(){const db=new DatabaseSync(':memory:');function prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return db.prepare(sql).get(...args)||null},async all(){return{results:db.prepare(sql).all(...args)}},async run(){const r=db.prepare(sql).run(...args);return{meta:{changes:Number(r.changes)}}}};return q}
 return{DB:{prepare,async exec(sql){db.exec(sql)},async batch(stmts){db.exec('BEGIN');try{const out=[];for(const q of stmts)out.push(await q.run());db.exec('COMMIT');return out}catch(e){db.exec('ROLLBACK');throw e}}},db,PL3_OPS_MAIL_ENABLED:'true'};}
+test('Gmail already-sent backfill never sends, persists evidence and rejects duplicate message IDs',async()=>{
+ const env=dbEnv(),f=fixture();await installOperations(env);f.go({type:'close_group',group_id:f.g});
+ const first=f.state.notices[0];env.db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(f.state));
+ const command=n=>({type:'notice_backfill_sent',notice_id:n.id,version:n.version,content:noticeContent(n),gmail_message_id:'gmail-backfilled-001',sent_at:'2026-11-04T00:30:00Z',evidence:'Gmail Sent verified by owner',confirmed:true});
+ const result=await executeOperation({key:'backfill-first-0001',version:0,command:command(first)},'owner',env);
+ assert.equal(result.result.backfilled,true);const view=await operationsView(env);
+ assert.equal(view.state.notices[0].status,'sent');assert.equal(view.state.invoices[0].notified,true);
+ assert.equal(view.state.notices[0].gmail_message_id,'gmail-backfilled-001');
+ assert.equal(env.db.prepare('SELECT status FROM pl_ops_mail WHERE notice_id=?').get(first.id).status,'sent');
+ assert.equal((await sendQueuedNotice(env,first.id,async()=>{throw Error('MUST NOT SEND')})).status,'sent');
+ await assert.rejects(()=>executeOperation({key:'backfill-again-0001',version:1,command:command(first)},'owner',env),/不能回填覆蓋/);
+ const current=await loadOperations(env),second={...first,id:'second-notice',status:'draft',gmail_message_id:null};current.state.notices.push(second);
+ env.db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(current.state));
+ await assert.rejects(()=>executeOperation({key:'backfill-second-01',version:1,command:command(second)},'owner',env),/已綁定/);
+ env.db.close();
+});
 test('group closing creates one bill and draft, repeated close never duplicates',()=>{const f=fixture();f.go({type:'close_group',group_id:f.g});f.go({type:'close_group',group_id:f.g});assert.equal(f.state.invoices.length,1);assert.equal(f.state.notices.length,1);assert.equal(f.state.notices[0].status,'draft');assert.match(f.state.notices[0].body,/NT\$890/);assert.equal(f.state.invoices[0].notified,false)});
 test('confirmed preorder creates first-stage bill while group stays open, without sending notice',()=>{
  const f=fixture();const c={type:'first_invoice_preorder_issue',order_id:f.o,amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'官方開放預購與客單報價已核對'};
