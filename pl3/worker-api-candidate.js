@@ -416,6 +416,20 @@ export default {
         }
         if(url.pathname==="/api/admin/ops/install"&&request.method==="POST")return response(await installOperations(env),200,origin);
         if(url.pathname==="/api/admin/ops"&&request.method==="GET")return response(await operationsView(env),200,origin);
+        if(url.pathname==="/api/admin/ops/attachment"&&request.method==="POST"){
+          const raw=await request.text();
+          if(raw.length>1401000)fail('附件請求超過1MB上限',413);
+          let body;try{body=JSON.parse(raw)}catch{fail('附件資料格式錯誤')}
+          return response(await saveOperationsAttachment(body,actor,env),200,origin);
+        }
+        if(url.pathname==="/api/admin/ops/attachment"&&request.method==="GET"){
+          const id=url.searchParams.get('id');
+          if(!id||!/^[0-9a-f-]{36}$/i.test(id))fail('附件識別碼無效');
+          const row=await env.DB.prepare('SELECT name,mime_type,base64_data FROM pl_ops_attachments WHERE id=?').bind(id).first();
+          if(!row)fail('附件不存在',404);
+          const bytes=Uint8Array.from(atob(row.base64_data),c=>c.charCodeAt(0));
+          return new Response(bytes,{headers:{'Content-Type':row.mime_type,'Content-Disposition':`attachment; filename="${String(row.name).replace(/[^\x20-\x7e]|["\\]/g,'_')}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'}});
+        }
         if(url.pathname==="/api/admin/ops/import"&&request.method==="POST"){
           const raw=await request.text();if(raw.length>1000000)fail("Import too large",413);let data;try{data=JSON.parse(raw);}catch{fail("Invalid JSON");}return response(await importOperations(data,actor,env),200,origin);
         }
