@@ -29,6 +29,9 @@ function validatePurchaseItems(s,items,advance,already=[]){
  }
 }
 export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
+// First-stage preorder billing is for the confirmed goods price only. Keep
+// unconfirmed international freight separate for the second-stage settlement.
+const reviewItemSignature=items=>JSON.stringify(items.map(l=>[l.id,l.name,l.sku,l.variant,l.quantity,l.unit_price_twd,l.shipping_units_confirmed!==false]));
 export const balance=(s,b)=>{if(b.status==='void')return 0;if(b.amount_twd===null)return null;const allocated=s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)+(b.legacy_settlement?.recognized_twd||0);const sourceVerified=b.phase==='first'?['第一階段已核對','第二次付款已核對'].includes(b.source_status):b.source_status==='第二次付款已核對';if(sourceVerified&&b.amount_twd>allocated)return null;return Math.max(0,b.amount_twd-allocated);};
 export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r.id&&!x.reversed_at).reduce((n,x)=>n+x.amount_twd,0)-s.refunds.filter(x=>x.receipt_id===r.id).reduce((n,x)=>n+x.amount_twd,0);
 // A payment report is only an unverified claim. Linking it to an EXISTING
@@ -214,7 +217,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const o=order(s,c.order_id);must(o.status==='review_pending','僅可審核待人工確認的申請',409);
   must(c.confirmed===true&&text(c.evidence),'請填寫主購確認結果及依據');
   must(!s.invoices.some(b=>b.order_id===o.id&&b.status!=='void'),'申請待審期間不得有付款帳款',409);
-  o.status='active';o.review={approved_at:now,evidence:text(c.evidence,2000)};
+  o.status='active';o.review={approved_at:now,evidence:text(c.evidence,2000),items_signature:reviewItemSignature(o.items)};
   changed.push(o.id);result={order_id:o.id,status:o.status};break;
  }
  case 'order_promote':{
@@ -229,7 +232,9 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(c.email.trim().toLowerCase()!==o.email?.toLowerCase())must(!s.allocations.some(a=>s.invoices.some(b=>b.id===a.invoice_id&&b.order_id===o.id))&&!s.notices.some(n=>n.order_ids.includes(o.id)&&['sent','sending','unknown'].includes(n.status)),'此單已有款項或寄送紀錄，Email需另行核對身分，不可直接更換',409);
   must(Array.isArray(c.items)&&c.items.length>0&&c.items.length<=50,'請補商品明細');
   const lines=c.items.map((x,i)=>{const old=o.items.find(l=>l.id===x.id);const q=positive(x.quantity),price=money(x.unit_price_twd);must(text(x.name),'商品名稱不可空白');must(!old||q>=old.purchased,'需求數量不得小於已實購');return {...(old||{id:id+':'+i,purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0}),name:text(x.name),sku:text(x.sku),variant:text(x.variant),quantity:q,unit_price_twd:price,shipping_units:x.shipping_units_confirmed===false?null:positive(x.shipping_units||1),shipping_units_confirmed:x.shipping_units_confirmed!==false};});
-  must(o.items.filter(l=>l.purchased>0).every(l=>lines.some(x=>x.id===l.id)),'不可移除已採購品項');must(lines.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0)===o.goods_twd,'明細總額必須等於原商品款，不能直接改動舊帳');o.items=lines;o.name=text(c.name);o.email=c.email.trim().toLowerCase();changed.push(o.id);break;
+  must(o.items.filter(l=>l.purchased>0).every(l=>lines.some(x=>x.id===l.id)),'不可移除已採購品項');must(lines.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0)===o.goods_twd,'明細總額必須等於原商品款，不能直接改動舊帳');
+  if(o.review&&reviewItemSignature(o.items)!==reviewItemSignature(lines)&&lines.some(l=>l.shipping_units_confirmed===false)){o.review=null;o.status='review_pending';}
+  o.items=lines;o.name=text(c.name);o.email=c.email.trim().toLowerCase();changed.push(o.id);break;
  }
  case 'star_trace_sale_update':{
   const g=s.groups.find(x=>x.id===BENEFIT_GROUP);must(g,'找不到 STAR TRACE 團次');
@@ -296,7 +301,14 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(email(o.email)&&text(o.name),'顧客姓名與Email須完整');
   must(c.confirmed===true&&text(c.evidence,2000),'請確認官方可訂購狀態、客單與報價依據');
   must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
-  must(o.items.length>0&&o.items.every(l=>l.quantity>0&&Number.isSafeInteger(l.unit_price_twd)&&l.unit_price_twd>0&&l.shipping_units_confirmed!==false),'商品規格、報價或運費份數尚未核對');
+  must(o.items.length>0&&o.items.every(l=>l.quantity>0&&Number.isSafeInteger(l.unit_price_twd)&&l.unit_price_twd>0),'商品規格或報價尚未核對');
+  // Shipping units do not affect the goods-only first bill. A customer order
+  // with unconfirmed shipping requires its own documented manual approval;
+  // never invent a unit count just to release collection.
+  if(o.items.some(l=>l.shipping_units_confirmed===false)){
+   must(o.review?.approved_at&&text(o.review.evidence)&&(!o.review.items_signature||o.review.items_signature===reviewItemSignature(o.items)),'運費待實算客單須先完成與目前商品明細一致的人工審核',409);
+   must(o.items.every(l=>l.shipping_units_confirmed!==false||l.shipping_units==null),'待實算運費份數不得暫填');
+  }
   must(o.items.every(l=>l.purchased===0),'已有實購紀錄的客單請使用已購得一補流程');
   const expected=o.items.reduce((sum,l)=>sum+l.quantity*l.unit_price_twd,0);
   positive(expected);must(c.amount_twd===expected,'金額須與訂單商品款一致');

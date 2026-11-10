@@ -67,6 +67,31 @@ test('confirmed preorder creates first-stage bill while group stays open, withou
  assert.match(f.state.notices[0].body,/付款期限：2026\/11\/8 20:00（台灣時間）/);
  assert.doesNotMatch(f.state.notices[0].body,/2026-11-08T12:00:00/);
 });
+test('manually reviewed pending-freight preorder can bill goods without inventing shipping units',()=>{
+ const f=fixture();let s=structuredClone(f.state);
+ const o=s.orders[0];o.status='review_pending';o.items[0].shipping_units=null;o.items[0].shipping_units_confirmed=false;
+ const issue={type:'first_invoice_preorder_issue',order_id:o.id,amount_twd:890,due_at:'2026-11-13T12:00:00Z',confirmed:true,evidence:'已向官方預購，商品款核對，海外運費留待二補'};
+ assert.throws(()=>applyOperation(s,issue,{id:'unreviewed',now:NOW}),/已確認/);
+ s.orders[0].status='active';
+ assert.throws(()=>applyOperation(s,issue,{id:'no-review',now:NOW}),/人工審核/);
+ s.orders[0].status='review_pending';
+ s=applyOperation(s,{type:'order_review',order_id:o.id,confirmed:true,evidence:'已核對預購及商品數量與單價，運費仍待實算'},{id:'reviewed',now:NOW}).state;
+ const result=applyOperation(s,issue,{id:'bill',now:NOW});s=result.state;
+ assert.equal(result.result.amount_twd,890);assert.equal(s.invoices.length,1);assert.equal(s.invoices[0].notified,false);
+ assert.equal(s.invoices[0].due_at,'2026-11-13T12:00:00Z');assert.equal(s.orders[0].items[0].shipping_units,null);
+ assert.equal(s.orders[0].items[0].shipping_units_confirmed,false);assert.equal(s.orders[0].items[0].purchased,0);
+ assert.equal(s.notices.length,0);assert.throws(()=>applyOperation(s,issue,{id:'duplicate',now:NOW}),/已有一補帳款/);
+ s=applyOperation(s,{type:'notice_draft',invoice_ids:[result.result.invoice_id]},{id:'draft',now:NOW}).state;
+ assert.equal(s.notices.length,1);assert.equal(s.notices[0].status,'draft');
+});
+test('changing pending-freight product details after review requires a fresh manual approval',()=>{
+ const f=fixture();let s=structuredClone(f.state),o=s.orders[0];o.status='review_pending';o.items[0].shipping_units=null;o.items[0].shipping_units_confirmed=false;
+ s=applyOperation(s,{type:'order_review',order_id:o.id,confirmed:true,evidence:'confirmed quote and item'},{id:'review',now:NOW}).state;
+ const edited={...s.orders[0].items[0],variant:'新規格',shipping_units:null,shipping_units_confirmed:false};
+ s=applyOperation(s,{type:'order_details',id:o.id,name:o.name,email:o.email,items:[edited]},{id:'edit',now:NOW}).state;
+ assert.equal(s.orders[0].status,'review_pending');assert.equal(s.orders[0].review,null);
+ assert.throws(()=>applyOperation(s,{type:'first_invoice_preorder_issue',order_id:o.id,amount_twd:890,due_at:'2026-11-13T12:00:00Z',confirmed:true,evidence:'preorder'},{id:'blocked',now:NOW}),/已確認/);
+});
 test('owner can extend only an outstanding bill and history remains intact',()=>{
  const f=fixture(),billed=f.go({type:'first_invoice_preorder_issue',order_id:f.o,amount_twd:890,due_at:'2026-11-08T12:00:00Z',confirmed:true,evidence:'official preorder'});
  const b=f.state.invoices[0];f.go({type:'notice_draft',invoice_ids:[b.id]});
