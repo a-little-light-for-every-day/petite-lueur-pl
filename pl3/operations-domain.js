@@ -318,7 +318,31 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
  }
  case 'owner_test_notice':{must(!s.notices.some(n=>n.kind==='owner-test'&&['draft','queued','sending','unknown'].includes(n.status)),'已有未完成的主購驗收信，請先檢視該草稿');const n={id,kind:'owner-test',to:'petitelueur.pl@gmail.com',subject:'【Petite Lueur PL】3.0 寄信驗收',body:'您好：\n\n這是 PL 3.0 官方信箱寄送測試，僅供主購驗收。未建立客戶帳款、未要求付款，也未發送任何客戶通知。\n\nPetite Lueur PL',attachments:[],order_ids:[],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);result={notice_id:n.id};break;}
- case 'notice_draft':{const n=makeNotice(s,c.invoice_ids,c.kind==='reminder'?'reminder':'payment',id,now);result={notice_id:n.id};break;}
+ case 'legacy_mail_record':{
+  must(c.confirmed===true&&text(c.evidence,2000).length>=8,'請確認歷史郵件證據');
+  must(email(c.to)&&typeof c.gmail_message_id==='string'&&/^[A-Za-z0-9_-]{8,160}$/.test(c.gmail_message_id),'歷史郵件識別資料不完整');
+  must(c.sent_at&&Number.isFinite(Date.parse(c.sent_at))&&Date.parse(c.sent_at)<=Date.parse(now),'歷史寄送時間無效');
+  const b=invoice(s,c.invoice_id),o=order(s,b.order_id);
+  must(o.email.toLowerCase()===c.to.toLowerCase(),'歷史郵件收件人與帳款不符');
+  must(positive(c.amount_twd)<=b.amount_twd,'歷史郵件金額與帳款不符');
+  must(!s.notices.some(n=>n.gmail_message_id===c.gmail_message_id),'此郵件已留存，不可重複記錄',409);
+  const n={id,kind:'legacy-payment',status:'sent',to:c.to,subject:text(c.subject,200),body:text(c.body,10000),order_ids:[o.id],invoice_ids:[b.id],amount_twd:c.amount_twd,gmail_message_id:c.gmail_message_id,gmail_thread_id:text(c.gmail_thread_id,160)||null,sent_at:c.sent_at,evidence:text(c.evidence,2000),attachments:[],created_at:now,version:1};
+  must(n.subject&&n.body,'須保留原信主旨與內容');n.dependency=noticeDependency(s,n);s.notices.push(n);
+  // Historical evidence is not a PL3 dispatch and must not mark the bill notified.
+  result={notice_id:id,recorded:true};break;
+ }
+ case 'notice_draft':{
+  const legacyIds=c.supersede_legacy_notice_ids||[];
+  must(Array.isArray(legacyIds)&&new Set(legacyIds).size===legacyIds.length,'舊通知關聯不可重複');
+  const selected=new Set(c.invoice_ids||[]);
+  for(const legacyId of legacyIds){const old=s.notices.find(n=>n.id===legacyId);must(old?.kind==='legacy-payment'&&old.status==='sent'&&!old.superseded_by,'歷史通知無效或已被取代',409);must(old.invoice_ids.every(bid=>selected.has(bid)),'歷史通知帳款不屬於本次合併',409);}
+  const n=makeNotice(s,c.invoice_ids,c.kind==='reminder'?'reminder':'payment',id,now);
+  must(n.status==='draft','合併通知已存在，請先核對',409);
+  must(!s.notices.some(x=>x.id!==n.id&&x.kind==='payment'&&['draft','queued','sending','unknown'].includes(x.status)&&x.invoice_ids.some(bid=>selected.has(bid))),'存在其他待處理的付款通知，請先撤銷以避免重複催款',409);
+  if(legacyIds.length){n.supersedes_notice_ids=legacyIds;n.version++;n.dependency=noticeDependency(s,n);}
+  for(const legacyId of legacyIds)s.notices.find(x=>x.id===legacyId).superseded_by=n.id;
+  result={notice_id:n.id};break;
+ }
  case 'notice_edit':{
   const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');must(['draft','failed'].includes(n.status),'通知已核准或寄出，不能修改',409);must(text(c.subject,200)&&text(c.body,10000),'主旨／內文不可空白');must(!/[\r\n]/.test(c.subject),'主旨不可換行');must(!/實刷|實際利潤|內部成本|女士|小姐|先生/.test(c.body),'對客內容包含內部成本或不適當稱謂');
   n.subject=text(c.subject,200);n.body=text(c.body,10000);if(c.attachments)n.attachments=c.attachments;n.version++;n.dependency=noticeDependency(s,n);break;
@@ -339,7 +363,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   if(['payment','reminder'].includes(n.kind))for(const bid of n.invoice_ids){const b=s.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
   result={notice_id:n.id,backfilled:true};break;
  }
- case 'notice_cancel':{const n=s.notices.find(x=>x.id===c.notice_id);must(n&&['draft','queued','failed'].includes(n.status),'通知不可撤銷',409);n.status='void';break;}
+ case 'notice_cancel':{const n=s.notices.find(x=>x.id===c.notice_id);must(n&&['draft','queued','failed'].includes(n.status),'通知不可撤銷',409);n.status='void';for(const old of s.notices.filter(x=>x.superseded_by===n.id))delete old.superseded_by;break;}
  case 'payment_report':{
   const o=order(s,c.order_id);must(open(o)&&o.email?.toLowerCase()===c.authenticated_email?.toLowerCase(),'禁止回報他人訂單',403);
   positive(c.amount_twd);
