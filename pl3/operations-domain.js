@@ -265,7 +265,9 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   }break;
  }
  case 'invoice_confirm':{
-  const b=invoice(s,c.invoice_id);must(b.phase==='first'&&!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'此帳款請使用既有通知／款項調整流程',409);must(c.confirmed===true&&text(c.evidence),'請確認報價與來源');positive(c.amount_twd);const invoicedOrder=order(s,b.order_id),expected=invoicedOrder.group_id===BENEFIT_GROUP?invoicedOrder.items.reduce((n,l)=>n+l.purchased*l.unit_price_twd,0):invoicedOrder.goods_twd;must(c.amount_twd===expected,'金額須與實際採購商品款一致');b.amount_twd=c.amount_twd;b.finalized=true;b.evidence=text(c.evidence,2000);changed.push(b.order_id);break;
+  const b=invoice(s,c.invoice_id);must(b.phase==='first'&&!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id&&!a.reversed_at),'此帳款請使用既有通知／款項調整流程',409);must(c.confirmed===true&&text(c.evidence),'請確認報價與來源');positive(c.amount_twd);const invoicedOrder=order(s,b.order_id),expected=invoicedOrder.group_id===BENEFIT_GROUP?invoicedOrder.items.reduce((n,l)=>n+l.purchased*l.unit_price_twd,0):invoicedOrder.goods_twd;must(c.amount_twd===expected,'金額須與已核對的訂單商品款一致');
+  if(!b.finalized){const deadline=text(c.due_at,60)||b.due_at;must(deadline&&Number.isFinite(Date.parse(deadline))&&Date.parse(deadline)>Date.parse(now),'核定舊帳款時須設定未來的付款期限');b.due_at=deadline;}
+  b.amount_twd=c.amount_twd;b.finalized=true;b.evidence=text(c.evidence,2000);changed.push(b.order_id);break;
  }
  case 'invoice_due_extend':{
   const b=invoice(s,text(c.invoice_id,200)),o=order(s,b.order_id);

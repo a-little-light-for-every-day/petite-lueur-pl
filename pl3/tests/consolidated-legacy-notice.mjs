@@ -17,6 +17,31 @@ function fixture(){
 const operate=(s,command,id)=>applyOperation(s,command,{id,now}).state;
 const historical={type:'legacy_mail_record',confirmed:true,invoice_id:'first:hanayume',to:email,amount_twd:170,subject:'舊系統通知',body:'您好，商品款 NT$170，請於舊期限付款。',sent_at:'2026-11-10T15:32:00.000Z',gmail_message_id:'1a1c617252046347',evidence:'個人帳戶寄件備查，內容及期限與PL3不同'};
 
+test('finalize three existing legacy invoices with due date without duplicating invoices or requiring purchase',()=>{
+ let s=fixture();
+ const amounts=[840,1510,775];
+ for(let i=0;i<3;i++){
+  s.orders[i].goods_twd=amounts[i];
+  s.invoices[i].id='PL2:'+s.orders[i].id+':first';
+  s.invoices[i].finalized=false;
+  s.invoices[i].due_at=null;
+ }
+ const originalCount=s.invoices.length;
+ const deadline='2026-11-13T12:00:00.000Z';
+ for(let i=0;i<3;i++)s=operate(s,{type:'invoice_confirm',invoice_id:s.invoices[i].id,confirmed:true,amount_twd:amounts[i],due_at:deadline,evidence:'依既有客單商品款核對'},'confirm-'+i);
+ assert.equal(s.invoices.length,originalCount);
+ assert.ok(s.invoices.slice(0,3).every(b=>b.finalized&&b.due_at===deadline));
+ assert.equal(s.invoices.reduce((total,b)=>total+balance(s,b),0),3295);
+ assert.equal(s.notices.length,0);
+ assert.equal(s.orders[2].items[0].purchased||0,0);
+});
+
+test('unfinalized legacy invoice requires a valid future deadline',()=>{
+ let s=fixture();s.orders[0].goods_twd=840;s.invoices[0].finalized=false;s.invoices[0].due_at=null;
+ assert.throws(()=>operate(s,{type:'invoice_confirm',invoice_id:'first:candy',confirmed:true,amount_twd:840,evidence:'已核對'},'missing-deadline'),/付款期限/);
+ assert.throws(()=>operate(s,{type:'invoice_confirm',invoice_id:'first:candy',confirmed:true,amount_twd:840,due_at:'2026-11-10T12:00:00.000Z',evidence:'已核對'},'old-deadline'),/付款期限/);
+});
+
 test('legacy mail preserved independently and consolidated draft does not duplicate receivables',()=>{
  let s=fixture();s=operate(s,historical,'legacy-mail-1');
  assert.equal(s.notices[0].status,'sent');assert.equal(s.invoices[3].notified,false);
