@@ -105,8 +105,8 @@ test('historic purchase backfill preserves the actual charge without debiting cu
  const c={type:'purchase_record',shop:'historical official shop',official_order:'HISTORY-1',currency:'JPY',original_amount:5000,actual_twd:1387,evidence:'old official invoice and bank statement',items:[item],budget_mode:'historical',purchased_at:'2026-10-21',historical_reason:'2026-10-21 card transaction already reflected in current balance',historical_confirmed:true,advance_approved:true,advance_reason:'owner approved historical purchase before invoice'};
  assert.throws(()=>f.go({...c,historical_confirmed:false}),/補登原因/);
  assert.throws(()=>f.go({...c,historical_reason:''}),/補登原因/);
- assert.throws(()=>f.go({...c,purchased_at:'2026-11-04'}),/早於今日/);
- assert.throws(()=>f.go({...c,purchased_at:'2026-02-30'}),/早於今日/);
+ assert.throws(()=>f.go({...c,purchased_at:'2026-11-05'}),/不晚於今日/);
+ assert.throws(()=>f.go({...c,purchased_at:'2026-02-30'}),/不晚於今日/);
  assert.throws(()=>f.go({...c,budget_mode:'other'}),/處理方式無效/);
  const before=structuredClone(f.state.invoices),res=f.go(c),purchase=f.state.purchases[0];
  assert.equal(f.state.config.card_available_twd,2467);
@@ -114,6 +114,15 @@ test('historic purchase backfill preserves the actual charge without debiting cu
  assert.equal(purchase.actual_twd,1387);assert.equal(purchase.budget_mode,'historical');assert.equal(purchase.purchased_at,'2026-10-21');
  assert.deepEqual(f.state.invoices,before);assert.equal(f.state.orders[0].items[0].purchased,1);
  assert.throws(()=>f.go({...c,official_order:'HISTORY-1'}),/官方訂單已登錄/);
+});
+test('same-day paid debit-card order is safely backfilled with zero credit-card budget impact',()=>{
+ const f=fixture();f.go({type:'card_budget',available_twd:2467,limit_twd:22000,confirmed:true,evidence:'bank statement'});
+ const c={type:'purchase_record',shop:'Neowing',official_order:'10115425119',currency:'JPY',original_amount:3780,actual_twd:822,evidence:'PayPal transaction with Taishin debit card ending 9501',items:[{order_id:f.o,item_id:f.state.orders[0].items[0].id,quantity:1}],budget_mode:'historical',purchased_at:'2026-11-04',historical_reason:'paid today by debit card; add existing paid transaction without deducting credit card budget',historical_confirmed:true,advance_approved:true,advance_reason:'owner already paid before the customer first installment'};
+ const before=structuredClone(f.state.invoices),result=f.go(c);
+ assert.equal(result.card_budget_impact_twd,0);assert.equal(f.state.config.card_available_twd,2467);
+ assert.equal(f.state.purchases[0].actual_twd,822);assert.equal(f.state.purchases[0].purchased_at,'2026-11-04');
+ assert.equal(f.state.orders[0].items[0].purchased,1);assert.deepEqual(f.state.invoices,before);
+ assert.throws(()=>f.go(c),/官方訂單已登錄/);
 });
 test('new purchase still reduces current available credit exactly once',()=>{
  const f=fixture();f.go({type:'card_budget',available_twd:2467,limit_twd:22000,confirmed:true,evidence:'verified card balance'});
