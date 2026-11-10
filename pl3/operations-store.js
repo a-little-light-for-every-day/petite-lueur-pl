@@ -53,6 +53,10 @@ export async function executeOperation(body,actor,env,{requestIdentity}={}){
   const existing=await env.DB.prepare('SELECT status FROM pl_ops_mail WHERE notice_id=?').bind(command.notice_id).first();
   if(existing&&!['failed','unknown'].includes(existing.status))throw opsError('寄送紀錄已存在，不能回填覆蓋',409);
  }
+ if(command.type==='legacy_mail_record'){
+  const duplicate=await env.DB.prepare('SELECT notice_id FROM pl_ops_mail WHERE gmail_message_id=?').bind(command.gmail_message_id).first();
+  if(duplicate)throw opsError('此 Gmail 郵件已屬於另一筆正式通知',409);
+ }
  const {state,result}=applyOperation(current.state,command,{id:key});const n=result.queue?state.notices.find(x=>x.id===result.notice_id):null;
  const manualMail=command.type==='notice_backfill_sent'?state.notices.find(x=>x.id===command.notice_id):null;
  const out=await commit(env,current,state,{key,type:command.type,requestHash,actor,result,notice:n,manualMail});
