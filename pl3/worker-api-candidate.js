@@ -12,6 +12,7 @@ import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import { paymentInstructionsFor } from './payment-instructions.js';
 import { qaPaymentBillSet, qaPaymentBillStatus, qaPaymentBillForCustomer, qaPaymentReport } from './qa-payment-bill.js';
+import {qaNoticeBackfillStart,qaNoticeBackfillSet,qaNoticeBackfillStatus} from './qa-notice-backfill.js';
 import { BENEFIT_GROUP } from './benefit-checkout.js';
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import starTraceHtml from './star-trace-html.js';
@@ -589,6 +590,13 @@ export default {
           const body=await jsonBody(request);
           return response(await qaPaymentBillSet(env,body.stage),200,origin);
         }
+      }
+      if(url.pathname.startsWith('/api/admin/qa-notice-backfill/')){
+        await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
+        if(url.pathname.endsWith('/status')&&request.method==='GET')return response(await qaNoticeBackfillStatus(env),200,origin);
+        if(url.pathname.endsWith('/start')&&request.method==='POST')return response(await qaNoticeBackfillStart(env),200,origin);
+        if(url.pathname.endsWith('/set')&&request.method==='POST')return response(await qaNoticeBackfillSet(env,await jsonBody(request)),200,origin);
       }
       if(url.pathname.startsWith('/api/admin/qa-payment-phases/')){
         await authorizedOwner(request,env);
