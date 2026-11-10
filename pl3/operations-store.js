@@ -25,7 +25,7 @@ export async function operationsView(env){
  for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void')Object.assign(n,{status:m.status,gmail_message_id:m.gmail_message_id,gmail_thread_id:m.gmail_thread_id,error_code:m.error_code,sent_at:m.sent_at});}
  return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{production_cutover:env.PL3_PRODUCTION_CUTOVER==='true',gmail_oauth_status:env.PL3_GMAIL_OAUTH_STATUS||'unverified',mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:operationsMirrorEnabled(env)?'enabled':'not_connected',source_mode:env.PL3_PRODUCTION_CUTOVER==='true'?'PL3營運資料為主；Notion／試算表以版本及衝突保護同步':'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
 }
-export async function commit(env,current,next,{key,type,requestHash,actor,result,notice}){
+export async function commit(env,current,next,{key,type,requestHash,actor,result,notice,manualMail}){
  const changes=[];
  for(const kind of entityKinds){const oldMap=new Map((current.state[kind]||[]).map(x=>[x.id,JSON.stringify(x)]));const seen=new Set();for(const x of next[kind]||[]){const json=JSON.stringify(x);seen.add(x.id);if(current.legacy_document||oldMap.get(x.id)!==json)changes.push({kind,id:x.id,before:oldMap.get(x.id)||null,after:json});}for(const [id,before]of oldMap)if(!seen.has(id))changes.push({kind,id,before,after:null});}
  const metadata=JSON.stringify({schema:next.schema,config:next.config,history:next.history});const changesJson=JSON.stringify(changes);
@@ -35,6 +35,7 @@ export async function commit(env,current,next,{key,type,requestHash,actor,result
  env.DB.prepare("DELETE FROM pl_ops_entities WHERE EXISTS(SELECT 1 FROM json_each(?) WHERE json_extract(value,'$.kind')=pl_ops_entities.kind AND json_extract(value,'$.id')=pl_ops_entities.id AND json_extract(value,'$.after') IS NULL) AND EXISTS(SELECT 1 FROM pl_ops_state WHERE id='main' AND last_command_id=?)").bind(changesJson,key),
  env.DB.prepare("INSERT INTO pl_ops_entity_history(command_id,kind,entity_id,version,before_json,after_json,actor) SELECT ?,json_extract(value,'$.kind'),json_extract(value,'$.id'),s.version,json_extract(value,'$.before'),json_extract(value,'$.after'),? FROM json_each(?) CROSS JOIN pl_ops_state s WHERE s.id='main' AND s.last_command_id=?").bind(key,actor,changesJson,key)];
  if(notice){const record=JSON.stringify(notice);stmts.push(env.DB.prepare("INSERT INTO pl_ops_mail(id,notice_id,snapshot_json,approved_by,approved_at) SELECT ?,?,?,?,? FROM pl_ops_state WHERE id='main' AND last_command_id=? ON CONFLICT(notice_id) DO UPDATE SET id=excluded.id,snapshot_json=excluded.snapshot_json,status='queued',approved_by=excluded.approved_by,approved_at=excluded.approved_at,error_code=NULL,claimed_at=NULL WHERE pl_ops_mail.status IN('failed','void')").bind(key,notice.id,record,actor,notice.approved_at,key));}
+ if(manualMail){stmts.push(env.DB.prepare("INSERT INTO pl_ops_mail(id,notice_id,snapshot_json,status,approved_by,approved_at,gmail_message_id,gmail_thread_id,sent_at) VALUES(?,?,?,'sent',?,?,?,?,?) ON CONFLICT(notice_id) DO UPDATE SET snapshot_json=excluded.snapshot_json,status='sent',gmail_message_id=excluded.gmail_message_id,gmail_thread_id=excluded.gmail_thread_id,sent_at=excluded.sent_at,error_code=NULL,updated_at=CURRENT_TIMESTAMP WHERE pl_ops_mail.status IN('failed','unknown')").bind(key,manualMail.id,JSON.stringify(manualMail),actor,manualMail.backfilled_at,manualMail.gmail_message_id,manualMail.gmail_thread_id,manualMail.sent_at));}
  let res;try{res=await env.DB.batch(stmts);}catch{throw opsError('操作發生衝突，請重新整理後重試',409);}
  if(!res[0]?.meta?.changes)throw opsError('資料已被更新，請重新整理後再操作',409);
  return {ok:true,version:current.version+1,result};
@@ -45,8 +46,16 @@ export async function executeOperation(body,actor,env,{requestIdentity}={}){
  if(prior){if(prior.request_hash!==requestHash)throw opsError('操作識別碼已被不同內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
  const current=await loadOperations(env);if(current.state.notices.some(n=>n.status==='sending'))throw opsError('通知正在寄送，請稍後重新整理再操作',423);if(current.version!==version)throw opsError('資料版本已變動，請重新整理',409);
  if(command.type==='notice_edit'&&command.attachments){if(!Array.isArray(command.attachments)||command.attachments.length>4)throw opsError('每封最多4份附件');const verified=[];for(const x of command.attachments){const file=await env.DB.prepare('SELECT id,name,mime_type,size_bytes,sha256 FROM pl_ops_attachments WHERE id=?').bind(x.id).first();if(!file)throw opsError('附件不存在');verified.push(file);}if(verified.reduce((n,x)=>n+x.size_bytes,0)>2000000)throw opsError('附件合計上限2MB');command.attachments=verified;}
+ if(command.type==='notice_backfill_sent'){
+  if(!command.sent_at||!Number.isFinite(Date.parse(command.sent_at))||Date.parse(command.sent_at)>Date.now()+60000)throw opsError('Gmail 寄送時間無效');
+  const duplicate=await env.DB.prepare('SELECT notice_id FROM pl_ops_mail WHERE gmail_message_id=? AND notice_id<>?').bind(command.gmail_message_id,command.notice_id).first();
+  if(duplicate)throw opsError('此 Gmail 郵件 ID 已綁定其他通知',409);
+  const existing=await env.DB.prepare('SELECT status FROM pl_ops_mail WHERE notice_id=?').bind(command.notice_id).first();
+  if(existing&&!['failed','unknown'].includes(existing.status))throw opsError('寄送紀錄已存在，不能回填覆蓋',409);
+ }
  const {state,result}=applyOperation(current.state,command,{id:key});const n=result.queue?state.notices.find(x=>x.id===result.notice_id):null;
- const out=await commit(env,current,state,{key,type:command.type,requestHash,actor,result,notice:n});
+ const manualMail=command.type==='notice_backfill_sent'?state.notices.find(x=>x.id===command.notice_id):null;
+ const out=await commit(env,current,state,{key,type:command.type,requestHash,actor,result,notice:n,manualMail});
  return {...out,notice_id:result.notice_id||null};
 }
 // One-time private import. Full operational records, no mail queued or external statuses overwritten.
