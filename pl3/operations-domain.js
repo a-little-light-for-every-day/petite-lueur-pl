@@ -399,7 +399,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(['current','historical'].includes(budgetMode),'信用卡預算處理方式無效');
   if(budgetMode==='historical'){
    const purchasedAt=text(c.purchased_at,10),todayTaipei=new Date(new Date(now).getTime()+8*60*60*1000).toISOString().slice(0,10);
-   must(/^\d{4}-\d{2}-\d{2}$/.test(purchasedAt)&&!Number.isNaN(Date.parse(purchasedAt))&&new Date(purchasedAt).toISOString().slice(0,10)===purchasedAt&&purchasedAt<todayTaipei,'歷史補登須填早於今日的實際官方下單日期');
+   must(/^\d{4}-\d{2}-\d{2}$/.test(purchasedAt)&&!Number.isNaN(Date.parse(purchasedAt))&&new Date(purchasedAt).toISOString().slice(0,10)===purchasedAt&&purchasedAt<=todayTaipei,'已付款補登須填不晚於今日的實際官方下單日期');
    must(c.historical_confirmed===true&&text(c.historical_reason),'請確認這是過去已完成刷卡的採購，並填補登原因與核實依據');
   }else if(c.actual_twd>0){must(s.config.card_available_twd!==null,'請先確認信用卡實際可用額度');must(c.actual_twd<=s.config.card_available_twd&&c.actual_twd<=s.config.card_limit_twd,'超過已確認可用額度／單批上限');}
   validatePurchaseItems(s,c.items,{approved:c.advance_approved,reason:c.advance_reason});
