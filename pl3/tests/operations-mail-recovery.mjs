@@ -20,8 +20,20 @@ test('stable RFC Message-ID is deterministic and included in outbound MIME',asyn
  assert.equal(sent.id,'gmail-id');
 });
 
-test('unknown acknowledgement stays ambiguous on transport error or missing Gmail ID',async()=>{
- for(const send of [async()=>{throw Error('network')},async()=>new Response('{}',{status:200})]){
-  await assert.rejects(sendOperationsMail(env,notice,key,mock(send)),e=>e.code==='GMAIL_ACKNOWLEDGEMENT_UNKNOWN'&&e.definite===false);
+test('unknown acknowledgement preserves diagnostic reasons and never claims a definite failure',async()=>{
+ const cases=[
+  ['GMAIL_ACK_TRANSPORT_EXCEPTION',async()=>{throw Error('network')}],
+  ['GMAIL_ACK_TIMEOUT_OR_ABORT',async()=>{throw Object.assign(Error('timeout'),{name:'TimeoutError'})}],
+  ['GMAIL_ACK_MISSING_MESSAGE_ID',async()=>new Response('{}',{status:200})],
+  ['GMAIL_ACK_MALFORMED_JSON',async()=>new Response('not JSON',{status:200})],
+  ['GMAIL_PROVIDER_HTTP_5XX_UNCERTAIN',async()=>new Response('{}',{status:503})]
+ ];
+ for(const [code,send] of cases){
+  await assert.rejects(sendOperationsMail(env,notice,key,mock(send)),e=>e.code===code&&e.definite===false,code);
  }
+});
+
+test('pre-send OAuth errors and definite Gmail rejections remain distinct',async()=>{
+ await assert.rejects(sendOperationsMail(env,notice,key,async()=>new Response('{}',{status:401})),e=>e.code==='GMAIL_AUTH_RECONNECT_REQUIRED'&&e.definite===true);
+ await assert.rejects(sendOperationsMail(env,notice,key,mock(async()=>new Response('{}',{status:403}))),e=>e.code==='GMAIL_PERMISSION_DENIED'&&e.definite===true);
 });
