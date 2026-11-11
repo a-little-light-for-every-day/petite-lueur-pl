@@ -33,6 +33,36 @@ test('two customers reporting the same amount do not authorize sharing one bank 
  assert.throws(()=>f.go({type:'receipt_confirm',customer_email:'customer-b@example.com',amount_twd:1775,kind:'bank_confirmed',transaction_id:'DIFFERENT-REFERENCE',evidence:'客人錯誤歸屬',confirmed:true,report_id:reportA,allocations:[{invoice_id:firstB.id,amount_twd:1775}]}),/已核對|不符/);
 });
 
+test('one bank deposit settles three same-customer order shares without duplicate income',()=>{
+ const f=fixture(),email='customer-a@example.com';
+ const amounts=[1510,840,170],orders=[];
+ for(let i=0;i<3;i++)orders.push(f.go({type:'order_save',id:'SHARED-'+i,name:'同一顧客',email,group_id:f.group_id,items:[{name:'合併商品',sku:'SHARED-'+i,quantity:1,unit_price_twd:amounts[i],shipping_units:1}]}).order_id);
+ f.go({type:'close_group',group_id:f.group_id});
+ const reports=orders.map((oid,i)=>f.go({type:'payment_report',order_id:oid,authenticated_email:email,amount_twd:amounts[i],phase:'first',paid_at:BANK_TIME,last5:'76891',method:'台灣 Pay'}).report_id);
+ const allocations=orders.map((oid,i)=>({invoice_id:f.state.invoices.find(b=>b.order_id===oid&&b.phase==='first').id,amount_twd:amounts[i]}));
+ const command={type:'receipt_confirm',customer_email:email,amount_twd:2520,kind:'bank_confirmed',transaction_id:'TAIWANPAY-2520-76891',evidence:'唯一銀行入帳2520與三筆客單核對',confirmed:true,report_id:reports[0],allocations};
+ const receipt_id=f.go(command).receipt_id;
+ assert.equal(f.state.receipts.length,1);assert.equal(f.state.allocations.length,3);
+ assert.equal(f.state.receipts[0].amount_twd,2520);
+ assert.ok(allocations.every(a=>balance(f.state,f.state.invoices.find(b=>b.id===a.invoice_id))===0));
+ assert.equal(f.state.reports.find(r=>r.id===reports[0]).status,'confirmed');
+ assert.ok(reports.slice(1).every(id=>reportMatchesExistingReceipt(f.state,f.state.reports.find(r=>r.id===id),f.state.receipts[0])));
+ f.go({type:'receipt_link_reports',receipt_id,expected_transaction_id:command.transaction_id,report_ids:reports.slice(1),confirmed:true,evidence:'同一銀行交易與三筆分配核對'});
+ assert.ok(reports.every(id=>f.state.reports.find(r=>r.id===id).status==='confirmed'));
+ assert.equal(f.state.receipts.length,1);assert.equal(f.state.allocations.reduce((n,a)=>n+a.amount_twd,0),2520);
+ assert.throws(()=>f.go({...command,report_id:reports[1]}),/重複/);
+});
+
+test('combined deposit rejects mismatched share, unrelated customer, and phase',()=>{
+ const f=fixture(),email='customer-a@example.com';f.go({type:'close_group',group_id:f.group_id});
+ const bill=f.state.invoices.find(b=>b.order_id===f.a),other=f.state.invoices.find(b=>b.order_id===f.b);
+ const rid=f.go({type:'payment_report',order_id:f.a,authenticated_email:email,amount_twd:100,phase:'first',method:'台灣 Pay',last5:'76891'}).report_id;
+ const base={type:'receipt_confirm',customer_email:email,amount_twd:2520,kind:'bank_confirmed',transaction_id:'ONE-BANK-2520',evidence:'已核對銀行入帳2520',confirmed:true,report_id:rid};
+ assert.throws(()=>f.go({...base,allocations:[{invoice_id:bill.id,amount_twd:90}]}),/金額與入帳不符/);
+ assert.throws(()=>f.go({...base,allocations:[{invoice_id:bill.id,amount_twd:100},{invoice_id:other.id,amount_twd:100}]}),/同一顧客/);
+ assert.equal(f.state.receipts.length,0);
+});
+
 test('payment phase and claimed amount must match the invoice and verified bank receipt',()=>{
  const f=fixture();f.go({type:'close_group',group_id:f.group_id});
  const bill=f.state.invoices.find(x=>x.order_id===f.a),reportId=report(f,f.a,'customer-a@example.com',{phase:'second'});
