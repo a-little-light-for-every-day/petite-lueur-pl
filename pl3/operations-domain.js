@@ -28,7 +28,7 @@ function validatePurchaseItems(s,items,advance,already=[]){
   must(x.quantity<=l.quantity-l.purchased,'實購超過待買數量');l.purchased+=x.quantity;
  }
 }
-export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
+export const newOperations=()=>({schema:1,service_requests:[],products:[],groups:[],orders:[],invoices:[],receipts:[],allocations:[],notices:[],purchases:[],shipments:[],stock_lots:[],refunds:[],reports:[],config:{card_limit_twd:22000,card_available_twd:null},history:[]});
 // First-stage preorder billing is for the confirmed goods price only. Keep
 // unconfirmed international freight separate for the second-stage settlement.
 const reviewItemSignature=items=>JSON.stringify(items.map(l=>[l.id,l.name,l.sku,l.variant,l.quantity,l.unit_price_twd,l.shipping_units_confirmed!==false]));
@@ -110,6 +110,32 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  if(c.type.startsWith('service_'))return applyService(s,c,{id,now},applyOperation);
  if(c.type.startsWith('benefit_'))return applyBenefit(s,c,{id,now});
  switch(c.type){
+ case 'stock_lot_record':{
+  // This is a private landed-cost ledger, NOT a shop listing or sellable stock.
+  // Monetary amounts are in TWD cents so bank fees are not silently rounded.
+  must(c.confirmed===true,'請確認在途備貨資料與來源憑證');
+  const lotId=text(c.lot_id,160),ownerType=text(c.owner_type,30),shipmentReference=text(c.shipment_reference,100);
+  const sku=text(c.sku,160),name=text(c.name,500),sourceOrder=text(c.source_order,160),evidence=text(c.evidence,3000);
+  must(lotId&&sku&&name&&sourceOrder&&shipmentReference&&evidence,'備貨批次、商品、來源單號、出倉單號及依據不可空白');
+  must(['pl_stock','personal'].includes(ownerType),'只接受 PL 備貨或主購自留');
+  must(!s.stock_lots.some(x=>x.id===lotId),'此備貨批次已登錄，禁止重複計入成本',409);
+  must(!s.stock_lots.some(x=>x.owner_type===ownerType&&x.shipment_reference===shipmentReference&&x.source_order===sourceOrder&&x.sku===sku),'同一出庫及官方訂單商品已登錄，禁止重複計入成本',409);
+  const qty=positive(c.quantity_purchased),reserved=money(c.quantity_reserved),shares=positive(c.shipping_units);
+  must(reserved<=qty,'暫留數量不能超過採購數量');
+  const goods=money(c.goods_cost_cents),japan=money(c.japan_cost_cents),international=money(c.international_cost_cents);
+  // Do not interpret an unknown packaging/tax cost as a confirmed zero.
+  must(c.packaging_cost_cents==null&&c.tax_cost_cents==null,'包材／稅費仍待抵台核對，不能在此提前結算');
+  must(c.received_quantity===undefined||c.received_quantity===0,'在途階段不可登錄抵台數量');
+  must(c.saleable_quantity===undefined||c.saleable_quantity===0,'在途階段可售庫存必須為 0');
+  const lot={id:lotId,owner_type:ownerType,name,sku,shipment_reference:shipmentReference,source_order:sourceOrder,
+   quantity_purchased:qty,quantity_reserved:reserved,received_quantity:0,saleable_quantity:0,
+   goods_cost_cents:goods,japan_cost_cents:japan,international_cost_cents:international,shipping_units:shares,
+   known_cost_cents:goods+japan+international,packaging_cost_cents:null,tax_cost_cents:null,
+   status:'in_transit',publicly_listed:false,evidence,created_at:now,updated_at:now};
+  must(Number.isSafeInteger(lot.known_cost_cents),'成本超出可安全記錄範圍');
+  s.stock_lots.push(lot);
+  result={lot_id:lot.id,status:lot.status,known_cost_cents:lot.known_cost_cents,saleable_quantity:0};break;
+ }
  case 'legacy_order_import_single':{
   must(c.confirmed===true,'請確認已核對舊版原單及正式資料庫');
   const oid=text(c.order_id,100),name=text(c.name),customerEmail=text(c.email,320).toLowerCase();
