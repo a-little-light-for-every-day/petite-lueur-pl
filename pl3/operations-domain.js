@@ -482,8 +482,46 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l&&open(o),'找不到有效品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物物流');positive(x.quantity);const prev=stages[stages.indexOf(c.stage)-1];must(x.quantity<=(l.fulfillment_kind==='forwarding'&&c.stage==='overseas'?l.quantity:l[prev])-l[c.stage],'超過上一階段已確認數量');l[c.stage]+=x.quantity;}
   result={stage:c.stage};break;
  }
+ case 'second_cost_draft':{
+  const o=order(s,c.order_id);
+  must(open(o)&&c.confirmed===true&&text(c.evidence),'請確認實際運費來源與分攤依據');
+  const existing=s.invoices.find(b=>b.order_id===o.id&&b.phase==='second'&&b.status!=='void');
+  must(!existing||(!existing.finalized&&!existing.notified&&!s.allocations.some(a=>a.invoice_id===existing.id&&!a.reversed_at)),'二補已正式結算或收款，不能暫存覆蓋',409);
+  const kinds=['japan','international','packaging','tax','domestic'];
+  must(c.costs&&typeof c.costs==='object'&&!Array.isArray(c.costs),'請提供已核對的費用欄位');
+  must(Object.keys(c.costs).every(k=>kinds.includes(k)),'不支援的二補費用項目');
+  const previous=o.second_cost_draft?.costs||{};
+  const costs=Object.fromEntries(kinds.map(k=>{
+   const value=Object.hasOwn(c.costs,k)?c.costs[k]:previous[k]??null;
+   return [k,value===null?null:money(value)];
+  }));
+  must(Object.values(costs).some(v=>v!==null),'至少確認一項實際費用');
+  if(c.shipping_units!==undefined){
+   const lines=o.items.filter(l=>!['fee','service'].includes(l.fulfillment_kind));
+   must(Array.isArray(c.shipping_units)&&c.shipping_units.length===lines.length,'運費份數須逐項對應既有品項');
+   const seen=new Set();
+   for(const x of c.shipping_units){
+    const item=lines.find(l=>l.id===x.item_id);
+    must(item&&!seen.has(x.item_id),'運費品項識別碼重複或不屬於此單',409);
+    seen.add(x.item_id);
+    must(Number.isSafeInteger(x.units)&&x.units>=1&&x.units<=1000,'運費份數須為1至1000的整數');
+    item.shipping_units=x.units;item.shipping_units_confirmed=true;
+   }
+  }
+  o.second_cost_draft={costs,evidence:text(c.evidence,3000),updated_at:now,shipment_reference:text(c.shipment_reference,100)||o.second_cost_draft?.shipment_reference||null};
+  result={order_id:o.id,pending:kinds.filter(k=>costs[k]===null),known_costs_twd:Object.values(costs).reduce((n,v)=>n+(v??0),0),finalized:false};
+  break;
+ }
  case 'second_settle':{
-  const o=order(s,c.order_id);must(open(o)&&c.confirmed===true&&text(c.evidence),'請確認費用來源');const costs=['japan','international','packaging','tax','domestic'].map(k=>({kind:k,amount_twd:money(c.costs?.[k]??0)}));let b=s.invoices.find(x=>x.order_id===o.id&&x.phase==='second');
+  const o=order(s,c.order_id);must(open(o)&&c.confirmed===true&&text(c.evidence),'請確認費用來源');
+  if(o.second_cost_draft){
+   must(c.due_at&&Number.isFinite(Date.parse(c.due_at)),'暫存費用轉正式二補須設定付款期限');
+   for(const kind of ['japan','international','packaging','tax','domestic']){
+    must(c.costs&&Number.isSafeInteger(c.costs[kind])&&c.costs[kind]>=0,'暫存費用尚未補齊，請逐項確認（無費用請填0）');
+    if(o.second_cost_draft.costs[kind]!==null)must(c.costs[kind]===o.second_cost_draft.costs[kind],'結算金額與暫存分攤不符，請先更正暫存費用');
+   }
+  }
+  const costs=['japan','international','packaging','tax','domestic'].map(k=>({kind:k,amount_twd:money(c.costs?.[k]??0)}));let b=s.invoices.find(x=>x.order_id===o.id&&x.phase==='second');
   must(!b||(!b.notified&&!s.allocations.some(a=>a.invoice_id===b.id)),'二補已通知／收款，須另建調整紀錄',409);const carry=b?.carry_twd||0;
   if(!b){b={id:'second:'+o.id,order_id:o.id,phase:'second',carry_twd:0,notified:false,status:'open',channel:'transfer'};s.invoices.push(b);}Object.assign(b,{amount_twd:costs.reduce((n,x)=>n+x.amount_twd,0)+carry,finalized:true,costs,evidence:text(c.evidence,2000),due_at:c.due_at||null,status:'open'});changed.push(o.id);result={invoice_id:b.id};break;
  }
