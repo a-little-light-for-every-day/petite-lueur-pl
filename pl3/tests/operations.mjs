@@ -3,6 +3,7 @@ import{newOperations,applyOperation,balance,credit,noticeContent,operationalTask
 import{installOperations,loadOperations,executeOperation,sendQueuedNotice,operationsView,saveOperationsAttachment,recoverMailClaims}from'../operations-store.js';
 import{sendOperationsMail}from'../operations-mail.js';
 import{operationsMirrorDocuments}from'../operations-mirror.js';
+import{BENEFIT_GROUP}from'../benefit-checkout.js';
 const NOW='2026-11-04T01:00:00.000Z';
 test('payment notice and paid confirmation have independent delivery states',()=>{
  const f=fixture();f.go({type:'close_group',group_id:f.g});const b=f.state.invoices[0];
@@ -117,6 +118,28 @@ test('preorder billing rejects unreviewed, stale, mismatched, and previously pur
  assert.throws(()=>f.go({...c,due_at:'2026-11-03T00:00:00Z'}),/未來/);
  f.state.orders[0].status='review_pending';assert.throws(()=>f.go(c),/已確認/);
  f=fixture();f.state.orders[0].items[0].purchased=1;assert.throws(()=>f.go(c),/實購紀錄/);
+});
+test('STAR TRACE partial first purchase bills only verified purchased quantities without ending second-sale claims',()=>{
+ const f=fixture(),s=structuredClone(f.state),o=s.orders[0],g=s.groups[0];
+ g.id=BENEFIT_GROUP;g.sale_phase='awaiting_second';o.group_id=BENEFIT_GROUP;
+ o.items[0].purchased=1;
+ s.purchases.push({id:'weverse-purchase',shop:'Weverse',official_order:'124180455570448660',items:[{order_id:o.id,item_id:o.items[0].id,quantity:1}]});
+ const command={type:'first_invoice_partial_purchase_issue',order_id:o.id,amount_twd:445,due_at:'2026-11-12T12:00:00Z',confirmed:true,evidence:'Weverse 官方 124180455570448660 購得 1 件，另 1 件順延二販'};
+ assert.throws(()=>applyOperation(s,{...command,amount_twd:890},{id:'wrong-amount',now:NOW}),/已購得商品款一致/);
+ assert.throws(()=>applyOperation(s,{...command,due_at:'2026-11-03T12:00:00Z'},{id:'old-deadline',now:NOW}),/未來/);
+ assert.throws(()=>applyOperation(s,{...command,evidence:''},{id:'missing-proof',now:NOW}),/實購證據/);
+ const noProof=structuredClone(s);noProof.purchases=[];
+ assert.throws(()=>applyOperation(noProof,command,{id:'missing-purchase',now:NOW}),/官方採購紀錄/);
+ const result=applyOperation(s,command,{id:'valid',now:NOW}),bill=result.state.invoices[0];
+ assert.equal(result.result.amount_twd,445);assert.equal(bill.amount_twd,445);
+ assert.equal(bill.due_at,'2026-11-12T12:00:00Z');assert.equal(bill.issue_basis,'partial_purchase_confirmed');
+ assert.equal(result.state.notices.length,0);assert.equal(result.state.orders[0].items[0].purchased,1);
+ assert.equal(result.state.orders[0].items[0].quantity,2);assert.equal(result.state.groups[0].sale_phase,'awaiting_second');
+ assert.throws(()=>applyOperation(result.state,command,{id:'duplicate',now:NOW}),/已有一補帳款/);
+ const finished=structuredClone(s);finished.groups[0].sale_phase='finished';
+ assert.throws(()=>applyOperation(finished,command,{id:'finished',now:NOW}),/待二販客單/);
+ const allBought=structuredClone(s);allBought.orders[0].items[0].purchased=2;
+ assert.throws(()=>applyOperation(allBought,command,{id:'fully-bought',now:NOW}),/部分實購客單/);
 });
 test('missing email blocks one notice without blocking valid orders',()=>{const f=fixture();const s=structuredClone(f.state);s.orders.push({...s.orders[0],id:'B',email:''});const r=applyOperation(s,{type:'close_group',group_id:f.g},{id:'close',now:NOW});assert.equal(r.result.drafts.length,1);assert.equal(r.result.blocked.length,1);assert.equal(r.state.invoices.length,2)});
 test('notice approval binds full contents and current version',()=>{const f=fixture();f.go({type:'close_group',group_id:f.g});let n=f.state.notices[0];assert.throws(()=>f.go({type:'notice_approve',notice_id:n.id,version:n.version,confirmed:true,content:'forged'}),/完整/);const prior=structuredClone(n);f.go({type:'notice_edit',notice_id:n.id,subject:n.subject,body:n.body+'\n請確認。'});assert.throws(()=>f.go({type:'notice_approve',notice_id:n.id,version:prior.version,confirmed:true,content:noticeContent(prior)}),/版本/);n=f.state.notices[0];f.go({type:'notice_approve',notice_id:n.id,version:n.version,confirmed:true,content:noticeContent(n)});assert.equal(f.state.notices[0].status,'queued')});

@@ -297,6 +297,26 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now};
   s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
  }
+ case 'first_invoice_partial_purchase_issue':{
+  const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
+  must(o.status==='active'&&g?.id===BENEFIT_GROUP&&g.status==='open'&&g.sale_phase==='awaiting_second','僅可對 STAR TRACE 已核實一販、待二販客單建立部分實購一補',409);
+  must(email(o.email)&&text(o.name),'顧客姓名與Email須完整');
+  must(c.confirmed===true&&text(c.evidence,2000),'請確認官方實購證據與商品款');
+  must(!s.invoices.some(b=>b.order_id===o.id&&b.phase==='first'&&b.status!=='void'),'此訂單已有一補帳款，不可重複建立',409);
+  must(o.items.length>0&&o.items.every(l=>Number.isSafeInteger(l.quantity)&&l.quantity>0&&Number.isSafeInteger(l.unit_price_twd)&&l.unit_price_twd>0&&Number.isSafeInteger(l.purchased)&&l.purchased>=0&&l.purchased<=l.quantity),'商品規格、報價或實購數量尚未核對');
+  const purchased=o.items.reduce((n,l)=>n+l.purchased,0),requested=o.items.reduce((n,l)=>n+l.quantity,0);
+  must(purchased>0&&purchased<requested,'此流程僅供部分實購客單；未購得商品不可提前請款');
+  for(const l of o.items.filter(x=>x.purchased>0)){
+   const recorded=(s.purchases||[]).reduce((sum,p)=>sum+(p.items||[]).filter(x=>x.order_id===o.id&&x.item_id===l.id).reduce((n,x)=>n+x.quantity,0),0);
+   must(recorded>=l.purchased,'缺少對應的官方採購紀錄，不能僅憑狀態建立應收');
+  }
+  const expected=o.items.reduce((sum,l)=>sum+l.purchased*l.unit_price_twd,0);
+  positive(expected);must(c.amount_twd===expected,'金額須與已購得商品款一致，未購得部分須另行處理');
+  const due=text(c.due_at,60)||g.payment_due_at;
+  must(due&&Number.isFinite(Date.parse(due))&&Date.parse(due)>Date.parse(now),'請設定未來的付款期限');
+  const b={id:'first:'+o.id,order_id:o.id,phase:'first',amount_twd:expected,channel:o.first_channel||'transfer',finalized:true,status:'open',notified:false,due_at:due,carry_twd:0,evidence:text(c.evidence,2000),created_at:now,issue_basis:'partial_purchase_confirmed'};
+  s.invoices.push(b);changed.push(o.id);result={invoice_id:b.id,amount_twd:expected,notice_created:false};break;
+ }
  case 'first_invoice_preorder_issue':{
   const o=order(s,c.order_id),g=s.groups.find(x=>x.id===o.group_id);
   must(o.status==='active'&&g?.status==='open','僅可對已確認、仍開團的正式客單建立預購一補',409);
