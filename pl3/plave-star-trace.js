@@ -10,7 +10,7 @@ export const STAR_TRACE_PRODUCTS = Object.freeze([
   ['71381',15455,'棒球帽造型收納包吊飾'],['71382',17727,'按鍵吊飾'],
   ['71383',10909,'掛繩套組'],['71385',3636,'隨身黏毛滾輪'],
   ['71386',79091,'厚磅連帽上衣']
-].map(([id,untaxed_krw,name])=>({id,untaxed_krw,name})));
+].map(([id,untaxed_krw,name])=>({id,untaxed_krw,tax_included_krw:{"71375":7000,"71376":18000,"71377":5000,"71378":9000,"71379":9000,"71380":65000,"71381":17000,"71382":19500,"71383":12000,"71385":4000,"71386":87000}[id],name})));
 
 const check=(v,msg)=>{if(!v)throw new Error(msg);};
 const integer=(v,msg)=>check(Number.isSafeInteger(v)&&v>=0,msg);
@@ -55,6 +55,7 @@ export function createSlots(customers){
     const e=eligibility(customer.lines);
     for(let n=1;n<=e.slots;n++)slots.push({id:`${customer.customer_order_id}:slot:${n}`,
       customer_order_id:customer.customer_order_id,preferences:[...customer.preferences],
+      prefer_full_set:customer.prefer_full_set!==false,
       accepts_duplicates:customer.accepts_duplicates===true,
       accepts_nonpreferred:customer.accepts_nonpreferred===true});
   }
@@ -73,8 +74,24 @@ export function allocateCards({slots,draw_order,cards,draw_evidence,adjustments=
   unique(available.map(x=>x.card_id),'實寄卡片編號不可重複');
   check(available.every(x=>x.card_id&&STAR_TRACE_MEMBERS.includes(x.member)),'卡池資料錯誤');
   const allocated=[],unallocated=[];
+  // An eligible ₩250,000 customer receives all five distinct members first,
+  // if and only if an entire set is available; preserve documented draw ranks.
+  const prioritized=[...new Set(draw_order.map(id=>slots.find(s=>s.id===id).customer_order_id))];
+  for(const owner of prioritized){
+    const theirs=draw_order.filter(id=>slots.find(s=>s.id===id).customer_order_id===owner);
+    const first=slots.find(s=>s.id===theirs[0]);
+    if(theirs.length<5||!first.prefer_full_set)continue;
+    const selected=STAR_TRACE_MEMBERS.map(member=>available.find(c=>c.member===member));
+    if(selected.some(c=>!c))continue;
+    for(let i=0;i<5;i++){
+      const id=theirs[i],card=selected[i];
+      available.splice(available.findIndex(c=>c.card_id===card.card_id),1);
+      allocated.push({slot_id:id,customer_order_id:owner,card_id:card.card_id,member:card.member,rank:draw_order.indexOf(id)+1,status:'待裝箱',full_set_priority:true});
+    }
+  }
   for(const id of draw_order){
     const slot=slots.find(s=>s.id===id);
+    if(allocated.some(x=>x.slot_id===id))continue;
     const existing=allocated.filter(x=>x.customer_order_id===slot.customer_order_id).map(x=>x.member);
     const chosen=slot.preferences.find(member=>available.some(c=>c.member===member&&(slot.accepts_duplicates||!existing.includes(member))));
     const cardIndex=chosen===undefined?-1:available.findIndex(c=>c.member===chosen);

@@ -6,7 +6,7 @@ const amount=n=>{if(!Number.isSafeInteger(n)||n<0)fail('金額須為非負整數
 export function applyService(s,c,{id,now},apply){
  s.service_requests=s.service_requests||[];let result={};const owned=()=>{const r=s.service_requests.find(r=>r.id===c.request_id);if(!r)fail('找不到申請');if(c.type.startsWith('service_customer_')&&r.email!==c.authenticated_email)fail('禁止操作他人申請');return r};
  if(c.type==='service_request'){
-  if(!SERVICE_KINDS[c.kind]||!c.authenticated_email)fail('服務類型或身分無效');let u;try{u=new URL(c.product_url)}catch{fail('請填商品或委託來源網址')}if(u.protocol!=='https:')fail('請使用HTTPS商品來源');if(/animate-onlineshop|animate\.co\.jp/i.test(u.hostname))fail('此通路不列為PL商業代購通路');
+  if(!SERVICE_KINDS[c.kind]||!c.authenticated_email)fail('服務類型或身分無效');let u;try{u=new URL(c.product_url)}catch{fail('請填商品或委託來源網址')}if(u.protocol!=='https:')fail('請使用HTTPS商品來源');
   if(!Number.isInteger(c.quantity)||c.quantity<1||c.quantity>99)fail('數量須為1至99');const r={id,email:c.authenticated_email,kind:c.kind,product_url:u.href,description:text(c.description),quantity:c.quantity,note:text(c.note),status:'pending',quote:null,quote_version:0,created_at:now};if(!r.description)fail('請填商品、款式與委託內容');s.service_requests.push(r);result={request_id:id};
  }else if(c.type==='service_quote'){
   const r=owned();if(!['pending','quoted'].includes(r.status))fail('此申請不可重新報價');if(!c.confirmed||!text(c.evidence))fail('請核實可承接通路、報價及來源');if(!Array.isArray(c.items)||!c.items.length||c.items.length>50)fail('請提供報價明細');

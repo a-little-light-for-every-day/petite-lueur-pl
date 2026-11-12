@@ -24,7 +24,7 @@ const db = {
 };
 function signed(email) {
   const payload = Buffer.from(JSON.stringify({
-    email, exp: Math.floor(Date.now() / 1000) + 3600
+    email, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600
   })).toString("base64url");
   const mac = createHmac("sha256", secret).update(payload).digest("base64url");
   return "Bearer " + payload + "." + mac;
@@ -78,19 +78,20 @@ test("owner reads fulfillment queue and audit history", async () => {
   assert.deepEqual(b.data.events, events);
 });
 
-test("staging owner dashboard serves static no-cache HTML without token exposure", async () => {
+test("production refuses legacy public QA page, staging requires explicit gate and owner", async () => {
   const response = await worker.fetch(new Request("https://worker.example/admin-test"), {
     DB: db, PL3_ADMIN_EMAIL: owner, SESSION_SECRET: secret
   });
-  const html = await response.text();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type"), /text\/html/);
-  assert.equal(response.headers.get("cache-control"), "no-store");
-  assert.match(html, /主購工作台/);
-  assert.match(html, /id="overview"/);
-  assert.match(html, /待人工核帳/);
-  assert.match(html, /僅模擬 QA 下一階段/);
-  assert.doesNotMatch(html, /localStorage\\.setItem/);
+  assert.equal(response.status,404);
+  const gated = await worker.fetch(new Request("https://worker.example/admin-test",{headers:{Authorization:signed(owner)}}), {
+    DB: db,PL3_ADMIN_EMAIL:owner,SESSION_SECRET:secret,PL3_PRODUCTION_CUTOVER:'false',PL3_ENABLE_TEST_ROUTES:'true'
+  });
+  assert.equal(gated.status,200);
+  assert.match(await gated.text(),/主購工作台/);
+  const prod = await worker.fetch(new Request("https://worker.example/admin-test",{headers:{Authorization:signed(owner)}}), {
+    DB:db,PL3_ADMIN_EMAIL:owner,SESSION_SECRET:secret,PL3_PRODUCTION_CUTOVER:'true',PL3_ENABLE_TEST_ROUTES:'true'
+  });
+  assert.equal(prod.status,404);
 });
 
 test('legacy payment preview is owner-only and never invokes order persistence',async()=>{

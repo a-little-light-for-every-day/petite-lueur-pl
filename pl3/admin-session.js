@@ -3,6 +3,9 @@
 const COOKIE = "__Host-pl3_admin";
 const ABSOLUTE_SECONDS = 30 * 24 * 60 * 60;
 const IDLE_SECONDS = 7 * 24 * 60 * 60;
+const STEP_UP_SECONDS = 15 * 60;
+const PAYMENT_STEP_UP_SECONDS = 2 * 60 * 60;
+const PAYMENT_COMMAND_TYPES = new Set(["receipt_confirm", "credit_allocate"]);
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 const base64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 const newToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -45,7 +48,7 @@ export async function readAdminSession(request, env) {
   if (!token) reject();
   const hash = await hashToken(token), stamp = nowSeconds();
   const row = await env.DB.prepare(
-    "SELECT id,owner_email,last_seen_at,expires_at,idle_expires_at FROM admin_sessions WHERE token_hash=? AND revoked_at IS NULL AND expires_at>? AND idle_expires_at>?"
+    "SELECT id,owner_email,created_at,last_seen_at,expires_at,idle_expires_at FROM admin_sessions WHERE token_hash=? AND revoked_at IS NULL AND expires_at>? AND idle_expires_at>?"
   ).bind(hash, stamp, stamp).first();
   if (!row) reject("Session expired or revoked");
   // Throttle idle extension to reduce D1 writes; absolute lifetime never extends.
@@ -54,9 +57,25 @@ export async function readAdminSession(request, env) {
       "UPDATE admin_sessions SET last_seen_at=?,idle_expires_at=? WHERE id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? AND idle_expires_at>?"
     ).bind(stamp, Math.min(stamp + IDLE_SECONDS, row.expires_at), row.id, hash, stamp, stamp).run();
   }
-  return { id: row.id, email: row.owner_email, expiresAt: row.expires_at, hash };
+  return { id: row.id, email: row.owner_email, createdAt: row.created_at, expiresAt: row.expires_at, hash };
+}
+// Only bank-confirmed receipt creation and allocation reuse the same OTP proof
+// for two hours. All other owner mutations (including bank-account changes,
+// sending notices and session revocation) keep the original 15-minute window.
+export function stepUpScopeForOperationsCommand(commandType) {
+  return PAYMENT_COMMAND_TYPES.has(commandType) ? "payment" : "high";
+}
+export function requireRecentAdminSession(session, scope = "high") {
+  const windowSeconds = scope === "payment" ? PAYMENT_STEP_UP_SECONDS : STEP_UP_SECONDS;
+  if (!Number.isFinite(session.createdAt) || nowSeconds() - session.createdAt > windowSeconds || session.createdAt > nowSeconds() + 60)
+    reject("高風險操作須重新驗證 Email，長效登入仍然保留。", 428);
 }
 export async function revokeAdminSession(env, session) {
   await env.DB.prepare("UPDATE admin_sessions SET revoked_at=? WHERE id=? AND token_hash=? AND revoked_at IS NULL")
     .bind(nowSeconds(), session.id, session.hash).run();
+}
+export async function revokeAllAdminSessions(env, ownerEmail) {
+  const result = await env.DB.prepare("UPDATE admin_sessions SET revoked_at=? WHERE owner_email=? AND revoked_at IS NULL")
+    .bind(nowSeconds(), ownerEmail).run();
+  return result.meta?.changes || 0;
 }

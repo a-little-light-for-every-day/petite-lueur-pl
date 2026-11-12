@@ -19,7 +19,7 @@ export function parseDraftCatalogJSON(raw,groupId){
   if(row.group_id&&filled(row.group_id)!==groupId)throw Error(`第 ${number} 款的團次 ID 與所選團次不同`);
   if(!Number.isSafeInteger(row.price_twd)||row.price_twd<=0)throw Error(`第 ${number} 款台幣售價須為正整數`);
   const source_url=filled(row.source_url),image_url=filled(row.image_url);
-  if(!https(source_url)||/animate/i.test(source_url))throw Error(`第 ${number} 款須填有效的官方 HTTPS 商品來源（不使用 Animate 商業代購）`);
+  if(!https(source_url))throw Error(`第 ${number} 款須填有效的官方 HTTPS 商品來源`);
   if(image_url&&!https(image_url))throw Error(`第 ${number} 款圖片網址須使用 HTTPS`);
   const units=row.shipping_units;
   if(units!==undefined&&units!==null&&units!==''&&(!Number.isSafeInteger(units)||units<=0))throw Error(`第 ${number} 款國際運費份數無效`);

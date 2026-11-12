@@ -10,6 +10,14 @@ Scope: `pl3-staging-api` and `pl3-staging` only. PL2 is not connected or migrate
 - The server enforces a 30-day absolute session limit and a 7-day inactivity timeout. Activity extends the inactivity deadline at most once an hour. Each explicit logout revokes its D1 token immediately and expires the browser cookie. Revocation across devices is not implemented yet.
 - The session API works only for the server-configured `PL3_ADMIN_EMAIL`; other OTP users cannot receive owner cookies.
 
+## Sensitive action re-verification windows
+
+- The persistent login remains 30 days absolute / 7 days idle. It does not authorize unlimited financial changes.
+- `receipt_confirm` (a real bank/platform receipt supported by explicit evidence and allocation) and `credit_allocate` may reuse the most recent owner Email OTP sign-in for **2 hours**. A customer payment report alone never creates bank receipt.
+- All other admin mutations, including `payment_accounts_config`, notification approval, exports, restores and all-session revocation, retain the **15-minute** recent-authentication limit. The short-lived bearer still requires an OTP issued within 5 minutes.
+- After a window expires, the existing login remains valid to view the console; only the protected action triggers OTP. The unsaved form remains available, and the operation is **not** automatically retried after verification.
+- No new OTP email provider, D1 schema migration, payment automation or customer email is introduced by this change.
+
 ## First: apply additive D1 schema
 
 Do **not** promote the new Worker before this succeeds. Apply ONLY to the D1 database named `pl3-staging` (not PL2 production). Make a staging backup first.

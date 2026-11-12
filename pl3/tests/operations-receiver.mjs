@@ -10,3 +10,47 @@ test('whole-group benefits map to all formal Sheets tables and deduplicate on re
 test('QA receiver restricts writes to isolated workbook and PL3-QA benefit cohort',()=>{const c=context(),b=book(),opened=[];c.SpreadsheetApp={openById:id=>{opened.push(id);return b},flush(){}};const v={...envelope(),event_id:'ops:benefit:hash',record_id:'benefit:PL3-QA-STAR',projection:{kind:'benefit',record_id:'benefit:PL3-QA-STAR',hash:'hash',document:{star_trace:{group_id:'PL3-QA-STAR',customers:[],qualifications:[],official_orders:[],received_cards:[],allocation:{}}}}};const p={qa:true,bookId:'isolated-only'};assert.equal(c.opsSheets_(v,p).ok,true);assert.equal(c.opsSheets_(v,p).ok,true);assert.deepEqual(opened,['isolated-only','isolated-only']);assert.equal(b.tabs.get('PL3 營運｜特典活動').rows.length,2);const props=new Map([['PL3_OPS_QA_MODE','true'],['PL3_OPS_QA_SECRET','test-secret'],['PL3_OPS_QA_NOTION_TOKEN','test-token'],['PL3_OPS_QA_SPREADSHEET_ID','qa-sheet'],['PL3_OPS_QA_BENEFIT_SOURCE_ID','qa-source'],['PL3_STAR_TRACE_NOTION_DATA_SOURCE_ID','production-source']]);c.PropertiesService={getScriptProperties:()=>({getProperty:k=>props.get(k)||null})};assert.equal(c.opsConfig_().qa,true);assert.equal(c.opsConfig_().bookId,'qa-sheet');props.set('PL3_OPS_QA_SPREADSHEET_ID','1Ts9N_UCnn5YITrT6M3CmliKswB78q6gtoxQR9zNkEPI');assert.throws(()=>c.opsConfig_(),/OPS_CONFIG_MISSING/);});
 test('Notion projection never converts unknown verified historical funds to fresh debt or regresses shipping notice',()=>{const c=context(),d=envelope().projection.document;d.order={...d.order,email:'test@example.com',source_status:'已向日本商店下單'};d.invoices[0].finalized=true;d.invoices[0].outstanding_twd=null;d.invoices[1].finalized=false;const props=c.opsOrderProperties_(d,null,'event');assert.equal(props['PL3一補待收'].number,null);assert.equal(props['付款狀態'],undefined);d.invoices[0].outstanding_twd=0;d.notices=[{status:'sent',kind:'payment',invoice_ids:['second:ORDER']}];const page={properties:{'通知狀態':{select:{name:'出貨已通知'}}}};assert.equal(c.opsOrderProperties_(d,page,'event')['通知狀態'].select.name,'出貨已通知');assert.ok(c.opsOrderProperties_(d,null,'event')['PL3營運快照'].rich_text.length>0)});
 test('initial legacy sync accepts API minute precision only with matching business baseline, preserves original website identity',()=>{const c=context(),v=envelope();v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-03T13:40:19.014Z';const o=v.projection.document.order;o.email='test@example.com';o.raw_item_text='原商品';o.source_status='台灣已寄出';o.source_payment_status='第二次付款已核對';const p={id:'abc',last_edited_time:'2026-11-03T13:40:00.000Z',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},properties:{'商品款':{number:o.goods_twd},Email:{email:o.email},'狀態':{select:{name:o.source_status}},'付款狀態':{select:{name:o.source_payment_status}},'商品明細':{type:'rich_text',rich_text:[{plain_text:o.raw_item_text}]},'網站訂單識別碼':{type:'rich_text',rich_text:[{plain_text:'original-web-uuid'}]}}};let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method,path,body)=>{if(method==='get')return p;writes++;assert.equal(body.properties['網站訂單識別碼'],undefined);return{id:p.id,last_edited_time:'2026-11-04T08:30:00.000Z'}};assert.equal(c.opsNotion_(v,{}).ok,true);assert.equal(writes,1);p.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).conflict,true);assert.equal(writes,1);p.properties['商品款'].number--;p.last_edited_time='2026-11-03T13:41:00.000Z';assert.equal(c.opsNotion_(v,{}).conflict,true);assert.equal(writes,1)});
+
+function notionPropsFromWrite(props){return Object.fromEntries(Object.entries(props).map(([k,v])=>[k,v.title?{type:'title',title:v.title.map(t=>({plain_text:t.text.content}))}:v.rich_text?{type:'rich_text',rich_text:v.rich_text.map(t=>({plain_text:t.text.content}))}:v]));}
+test('Notion can safely rebase a note-only page revision without losing existing PL3 purchase allocation',()=>{
+ const c=context(),v=envelope(),oldEvent='ops:order:'+ 'a'.repeat(64);
+ v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:10:31.348Z';
+ const old=JSON.parse(JSON.stringify(v.projection.document));old.order.name='測試客人';old.order.email='test@example.com';old.order.items=[{id:'item:1',name:'耳機',quantity:1,purchased:0}];
+ v.projection.document=JSON.parse(JSON.stringify(old));v.projection.document.order.items[0].purchased=1;v.projection.document.status='部分已購得／餘量順延二販';
+ const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:17:56.244Z',properties:notionPropsFromWrite(c.opsOrderProperties_(old,null,oldEvent))};
+ let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method,path,body)=>{if(method==='get')return page;writes++;assert.equal(body.properties['PL3同步版本'].rich_text[0].text.content,v.event_id);assert.match(body.properties['PL3營運快照'].rich_text.map(x=>x.text.content).join(''),/"purchased":1/);return{id:page.id,last_edited_time:'2026-11-06T11:30:00.000Z'};};
+ assert.equal(c.opsNotion_(v,{}).ok,true);assert.equal(writes,1);
+ page.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');assert.equal(writes,1);
+ page.properties['商品款'].number--;page.properties['PL3營運快照'].rich_text[0].plain_text='{}';assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');assert.equal(writes,1);
+});
+test('Notion safely reconciles an already-matching canceled status but refuses conflicting statuses and prices',()=>{
+ const c=context(),v=envelope(),oldEvent='ops:order:'+'b'.repeat(64);
+ v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:00:00.000Z';
+ const old=JSON.parse(JSON.stringify(v.projection.document));old.status='訂購申請待確認';old.order.email='owner@example.com';old.order.name='測試主購';
+ old.order.id='PL3-11111111-2222-3333-4444-555555555555';old.order.items=[{id:'line-1',name:'耳機',sku:'WV-PLAVE-71380',variant:'',quantity:1,unit_price_twd:890,shipping_units:5}];
+ v.projection.document=JSON.parse(JSON.stringify(old));v.projection.document.status='已取消';
+ const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:00:00.000Z',properties:notionPropsFromWrite(c.opsOrderProperties_(old,null,oldEvent))};
+ assert.ok(page.properties['結構化商品明細']?.rich_text?.length,'Native PL3 SKU projection must be present');
+ page.properties['狀態']={select:{name:'已取消'}};
+ for(const k of ['訂購人姓名','顧客姓名'])page.properties[k]={type:'rich_text',rich_text:[]};
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[]};
+ let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method)=>{if(method==='get')return page;writes++;return{id:page.id,last_edited_time:'2026-11-06T11:01:00.000Z'}};
+ assert.equal(c.opsNotion_(v,{}).ok,true);assert.equal(writes,1);
+ page.properties['顧客姓名']={type:'rich_text',rich_text:[{plain_text:'人工改名'}]};
+ assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['顧客姓名']={type:'rich_text',rich_text:[]};
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[{plain_text:'人工修改SKU'}]};
+ assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['結構化商品明細']={type:'rich_text',rich_text:[]};
+ page.properties['狀態'].select.name='已向日本商店下單';assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ page.properties['狀態'].select.name='已取消';page.properties['商品款'].number++;assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');
+ assert.equal(writes,1);
+});
+test('Notion rejects changed page revisions with no valid prior PL3 snapshot',()=>{
+ const c=context(),v=envelope();v.destination='notion';v.projection.source_id='abc';v.expected_remote_id='abc';v.expected_remote_revision='2026-11-06T06:10:00Z';
+ const page={id:'abc',parent:{data_source_id:'8c7c6206-6e5a-4850-aac6-712d261432a5'},last_edited_time:'2026-11-06T11:17:00Z',properties:{'PL3同步版本':{type:'rich_text',rich_text:[]},'PL3營運快照':{type:'rich_text',rich_text:[]}}};
+ let writes=0;c.opsEnsureSchema_=()=>{};c.formalNotionCall_=(_,method)=>{if(method==='get')return page;writes++;throw Error('unexpected write')};
+ assert.equal(c.opsNotion_(v,{}).error_code,'OPS_NOTION_REVISION_CHANGED');assert.equal(writes,0);
+});
+
+test('formal management Notion projection copies full customer name only into private order fields',()=>{const c=context(),d=envelope().projection.document;d.order.name='蕭帆妤';d.order.email='sample@example.com';const props=c.opsOrderProperties_(d,null,'event');assert.equal(props['訂購人姓名'].rich_text[0].text.content,'蕭帆妤');assert.equal(props['顧客姓名'].rich_text[0].text.content,'蕭帆妤');});

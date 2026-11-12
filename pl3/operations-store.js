@@ -1,3 +1,8 @@
+import {reportMailFailure} from "./mail-failure-alert.js";
+import {operationsMailMessageId} from './operations-mail.js';
+import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
+import {starTraceAdmission} from './star-trace-admission.js';
+import {remainingGroupCapacity,groupAcceptingApplications} from './group-capacity.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -5,7 +10,7 @@ CREATE TABLE IF NOT EXISTS pl_ops_commands(id TEXT PRIMARY KEY,request_hash TEXT
 CREATE TABLE IF NOT EXISTS pl_ops_mail(id TEXT PRIMARY KEY,notice_id TEXT NOT NULL UNIQUE,snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN('queued','sending','sent','failed','unknown','void')),approved_by TEXT NOT NULL,approved_at TEXT NOT NULL,gmail_message_id TEXT,gmail_thread_id TEXT,error_code TEXT,claimed_at TEXT,sent_at TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pl_ops_attachments(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,base64_data TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`;
 export const opsError=(m,status=400)=>Object.assign(new Error(m),{status});
-export const entityKinds=['service_requests','products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','refunds','reports'];
+export const entityKinds=['service_requests','products','groups','orders','invoices','receipts','allocations','notices','purchases','shipments','stock_lots','refunds','reports'];
 const entitySchema="CREATE TABLE IF NOT EXISTS pl_ops_entities(kind TEXT NOT NULL,id TEXT NOT NULL,document_json TEXT NOT NULL CHECK(json_valid(document_json)),updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(kind,id));CREATE TABLE IF NOT EXISTS pl_ops_entity_history(command_id TEXT NOT NULL,kind TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL,before_json TEXT,after_json TEXT,actor TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(command_id,kind,entity_id));";
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 export async function installOperations(env){for(const statement of (schema+entitySchema+mirrorSchema).split(';').map(x=>x.trim()).filter(Boolean))await env.DB.prepare(statement).run();await env.DB.prepare("INSERT OR IGNORE INTO pl_ops_state(id,document_json) VALUES('main',?)").bind(JSON.stringify(newOperations())).run();return {ok:true};}
@@ -17,11 +22,18 @@ export async function loadOperations(env){
  return {version:row.version,state,legacy_document:Array.isArray(meta.groups)};
 }
 export async function operationsView(env){
- const {version,state}=await loadOperations(env);const mail=await env.DB.prepare('SELECT notice_id,status,gmail_message_id,gmail_thread_id,error_code,sent_at FROM pl_ops_mail ORDER BY updated_at DESC LIMIT 500').all();
- for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void')Object.assign(n,{status:m.status,gmail_message_id:m.gmail_message_id,gmail_thread_id:m.gmail_thread_id,error_code:m.error_code,sent_at:m.sent_at});}
+ const {version,state}=await loadOperations(env);const mail=await env.DB.prepare('SELECT id,notice_id,status,gmail_message_id,gmail_thread_id,error_code,claimed_at,sent_at,updated_at FROM pl_ops_mail ORDER BY updated_at DESC LIMIT 500').all();
+ for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void'){
+  Object.assign(n,{status:m.status,gmail_message_id:m.gmail_message_id,gmail_thread_id:m.gmail_thread_id,error_code:m.error_code,sent_at:m.sent_at});
+   if(m.status==='unknown'){
+    n.gmail_manual_search=`in:sent rfc822msgid:${await operationsMailMessageId(m.id)}`;
+    n.mail_claimed_at=m.claimed_at;
+    n.mail_result_at=m.updated_at;
+   }
+ }}
  return {ok:true,version,state,tasks:operationalTasks(state),capabilities:{production_cutover:env.PL3_PRODUCTION_CUTOVER==='true',gmail_oauth_status:env.PL3_GMAIL_OAUTH_STATUS||'unverified',mail_enabled:env.PL3_OPS_MAIL_ENABLED==='true',sync:operationsMirrorEnabled(env)?'enabled':'not_connected',source_mode:env.PL3_PRODUCTION_CUTOVER==='true'?'PL3營運資料為主；Notion／試算表以版本及衝突保護同步':'PL2仍為原始來源；此區操作獨立留存，不會自動覆寫舊站'}};
 }
-export async function commit(env,current,next,{key,type,requestHash,actor,result,notice}){
+export async function commit(env,current,next,{key,type,requestHash,actor,result,notice,manualMail}){
  const changes=[];
  for(const kind of entityKinds){const oldMap=new Map((current.state[kind]||[]).map(x=>[x.id,JSON.stringify(x)]));const seen=new Set();for(const x of next[kind]||[]){const json=JSON.stringify(x);seen.add(x.id);if(current.legacy_document||oldMap.get(x.id)!==json)changes.push({kind,id:x.id,before:oldMap.get(x.id)||null,after:json});}for(const [id,before]of oldMap)if(!seen.has(id))changes.push({kind,id,before,after:null});}
  const metadata=JSON.stringify({schema:next.schema,config:next.config,history:next.history});const changesJson=JSON.stringify(changes);
@@ -31,6 +43,7 @@ export async function commit(env,current,next,{key,type,requestHash,actor,result
  env.DB.prepare("DELETE FROM pl_ops_entities WHERE EXISTS(SELECT 1 FROM json_each(?) WHERE json_extract(value,'$.kind')=pl_ops_entities.kind AND json_extract(value,'$.id')=pl_ops_entities.id AND json_extract(value,'$.after') IS NULL) AND EXISTS(SELECT 1 FROM pl_ops_state WHERE id='main' AND last_command_id=?)").bind(changesJson,key),
  env.DB.prepare("INSERT INTO pl_ops_entity_history(command_id,kind,entity_id,version,before_json,after_json,actor) SELECT ?,json_extract(value,'$.kind'),json_extract(value,'$.id'),s.version,json_extract(value,'$.before'),json_extract(value,'$.after'),? FROM json_each(?) CROSS JOIN pl_ops_state s WHERE s.id='main' AND s.last_command_id=?").bind(key,actor,changesJson,key)];
  if(notice){const record=JSON.stringify(notice);stmts.push(env.DB.prepare("INSERT INTO pl_ops_mail(id,notice_id,snapshot_json,approved_by,approved_at) SELECT ?,?,?,?,? FROM pl_ops_state WHERE id='main' AND last_command_id=? ON CONFLICT(notice_id) DO UPDATE SET id=excluded.id,snapshot_json=excluded.snapshot_json,status='queued',approved_by=excluded.approved_by,approved_at=excluded.approved_at,error_code=NULL,claimed_at=NULL WHERE pl_ops_mail.status IN('failed','void')").bind(key,notice.id,record,actor,notice.approved_at,key));}
+ if(manualMail){stmts.push(env.DB.prepare("INSERT INTO pl_ops_mail(id,notice_id,snapshot_json,status,approved_by,approved_at,gmail_message_id,gmail_thread_id,sent_at) VALUES(?,?,?,'sent',?,?,?,?,?) ON CONFLICT(notice_id) DO UPDATE SET snapshot_json=excluded.snapshot_json,status='sent',gmail_message_id=excluded.gmail_message_id,gmail_thread_id=excluded.gmail_thread_id,sent_at=excluded.sent_at,error_code=NULL,updated_at=CURRENT_TIMESTAMP WHERE pl_ops_mail.status IN('failed','unknown')").bind(key,manualMail.id,JSON.stringify(manualMail),actor,manualMail.backfilled_at,manualMail.gmail_message_id,manualMail.gmail_thread_id,manualMail.sent_at));}
  let res;try{res=await env.DB.batch(stmts);}catch{throw opsError('操作發生衝突，請重新整理後重試',409);}
  if(!res[0]?.meta?.changes)throw opsError('資料已被更新，請重新整理後再操作',409);
  return {ok:true,version:current.version+1,result};
@@ -40,9 +53,21 @@ export async function executeOperation(body,actor,env,{requestIdentity}={}){
  const requestHash=await hash(JSON.stringify(requestIdentity===undefined?{version,command}:requestIdentity));const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('操作識別碼已被不同內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
  const current=await loadOperations(env);if(current.state.notices.some(n=>n.status==='sending'))throw opsError('通知正在寄送，請稍後重新整理再操作',423);if(current.version!==version)throw opsError('資料版本已變動，請重新整理',409);
- if(command.type==='notice_edit'&&command.attachments){if(!Array.isArray(command.attachments)||command.attachments.length>4)throw opsError('每封最多4份附件');const verified=[];for(const x of command.attachments){const file=await env.DB.prepare('SELECT id,name,mime_type,size_bytes,sha256 FROM pl_ops_attachments WHERE id=?').bind(x.id).first();if(!file)throw opsError('附件不存在');verified.push(file);}if(verified.reduce((n,x)=>n+x.size_bytes,0)>2000000)throw opsError('附件合計上限2MB');command.attachments=verified;}
+ if(command.type==='notice_edit'&&command.attachments){if(!Array.isArray(command.attachments)||command.attachments.length>4)throw opsError('每封最多4份附件');const verified=[];for(const x of command.attachments){const file=await env.DB.prepare('SELECT id,name,mime_type,size_bytes,sha256 FROM pl_ops_attachments WHERE id=?').bind(x.id).first();if(!file)throw opsError('附件不存在');verified.push(file);}if(verified.reduce((n,x)=>n+x.size_bytes,0)>4000000)throw opsError('附件合計上限4MB');command.attachments=verified;}
+ if(command.type==='notice_backfill_sent'){
+  if(!command.sent_at||!Number.isFinite(Date.parse(command.sent_at))||Date.parse(command.sent_at)>Date.now()+60000)throw opsError('Gmail 寄送時間無效');
+  const duplicate=await env.DB.prepare('SELECT notice_id FROM pl_ops_mail WHERE gmail_message_id=? AND notice_id<>?').bind(command.gmail_message_id,command.notice_id).first();
+  if(duplicate)throw opsError('此 Gmail 郵件 ID 已綁定其他通知',409);
+  const existing=await env.DB.prepare('SELECT status FROM pl_ops_mail WHERE notice_id=?').bind(command.notice_id).first();
+  if(existing&&!['failed','unknown'].includes(existing.status))throw opsError('寄送紀錄已存在，不能回填覆蓋',409);
+ }
+ if(command.type==='legacy_mail_record'){
+  const duplicate=await env.DB.prepare('SELECT notice_id FROM pl_ops_mail WHERE gmail_message_id=?').bind(command.gmail_message_id).first();
+  if(duplicate)throw opsError('此 Gmail 郵件已屬於另一筆正式通知',409);
+ }
  const {state,result}=applyOperation(current.state,command,{id:key});const n=result.queue?state.notices.find(x=>x.id===result.notice_id):null;
- const out=await commit(env,current,state,{key,type:command.type,requestHash,actor,result,notice:n});
+ const manualMail=command.type==='notice_backfill_sent'?state.notices.find(x=>x.id===command.notice_id):null;
+ const out=await commit(env,current,state,{key,type:command.type,requestHash,actor,result,notice:n,manualMail});
  return {...out,notice_id:result.notice_id||null};
 }
 // One-time private import. Full operational records, no mail queued or external statuses overwritten.
@@ -65,7 +90,7 @@ export async function importOperations(body,actor,env){
 }
 export async function persistMailResult(env,noticeId,status,fields={}){
  // Mail result is merged into the current aggregate with CAS, so concurrent business edits survive.
- for(let attempt=0;attempt<4;attempt++){const cur=await loadOperations(env),before=structuredClone(cur.state),n=cur.state.notices.find(x=>x.id===noticeId);if(!n)return;if(n.status==='void')return;Object.assign(n,{status,...fields});if(status==='sent')for(const bid of n.invoice_ids){const b=cur.state.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
+ for(let attempt=0;attempt<4;attempt++){const cur=await loadOperations(env),before=structuredClone(cur.state),n=cur.state.notices.find(x=>x.id===noticeId);if(!n)return;if(n.status==='void')return;Object.assign(n,{status,...fields});if(status==='sent'&&['payment','reminder'].includes(n.kind))for(const bid of n.invoice_ids){const b=cur.state.invoices.find(x=>x.id===bid);if(b)b.notified=true;}
  const key='mail-result:'+crypto.randomUUID();try{await commit(env,{...cur,state:before},cur.state,{key,type:'mail.result',requestHash:await hash(JSON.stringify([noticeId,status,fields])),actor:'system:mail-delivery',result:{notice_id:noticeId,status}});return;}catch(e){if(e.status!==409)throw e;}}
  // Delivery row is authoritative even if business view was busy; never resend to repair this.
 }
@@ -83,7 +108,7 @@ export async function sendQueuedNotice(env,noticeId,send){
  const beforeReservation=structuredClone(latest.state);approved.status='sending';
  try{await commit(env,{...latest,state:beforeReservation},latest.state,{key:'mail-claim:'+crypto.randomUUID(),type:'mail.claimed',requestHash:await hash(r.id),actor:'system:mail-delivery',result:{notice_id:noticeId}});}catch(e){if(e.status!==409)throw e;await env.DB.prepare("UPDATE pl_ops_mail SET status='void',error_code='APPROVAL_STALE' WHERE id=? AND status='sending'").bind(r.id).run();return {status:'void'};}
  try{const sent=await send(snap,r.id);await env.DB.prepare("UPDATE pl_ops_mail SET status='sent',gmail_message_id=?,gmail_thread_id=?,sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(sent.id,sent.threadId||null,r.id).run();await persistMailResult(env,noticeId,'sent',{gmail_message_id:sent.id,gmail_thread_id:sent.threadId||null});return {status:'sent',gmail_message_id:sent.id};}
- catch(e){const status=e.definite?'failed':'unknown',code=e.code||'DELIVERY_UNCERTAIN';await env.DB.prepare("UPDATE pl_ops_mail SET status=?,error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(status,code,r.id).run();await persistMailResult(env,noticeId,status,{error_code:code});return {status,error_code:code};}
+ catch(e){const status=e.definite?'failed':'unknown',code=e.code||'DELIVERY_UNCERTAIN';await env.DB.prepare("UPDATE pl_ops_mail SET status=?,error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending'").bind(status,code,r.id).run();await persistMailResult(env,noticeId,status,{error_code:code});try{await reportMailFailure(env,'operations',code);}catch(alertError){console.error('PL3 mail alert handling failed',String(alertError?.message||'unknown').slice(0,60));}return {status,error_code:code};}
 }
 export async function recoverMailClaims(env){
  // A lost acknowledgement is not a safe retry. Surface old in-flight requests for investigation.
@@ -103,20 +128,31 @@ export async function saveOperationsAttachment(body,actor,env){
 }
 
 export function publicOperationsCatalog(state){
- const now=Date.now();const groups=state.groups.filter(g=>g.status==='open'&&g.deadline&&Date.parse(g.deadline)>now);
- const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&groups.some(g=>g.id===p.group_id));
- return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline})=>({id,title,deadline})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url}))};
+ const now=Date.now();const groups=state.groups.filter(g=>groupAcceptingApplications(g,now));
+ const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&(p.shipping_units_confirmed!==false||p.manual_review_required===true||groups.some(g=>g.id===p.group_id&&g.direct_payment===true))&&groups.some(g=>g.id===p.group_id)&&remainingGroupCapacity(state,p.group_id)!==0);
+ return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline,direct_payment})=>({id,title,deadline,...(direct_payment?{direct_payment:true}:{})})),products:products.map(({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_units_confirmed,manual_review_required})=>({id,group_id,name,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_pending:shipping_units_confirmed===false,manual_review_required:shipping_units_confirmed===false&&manual_review_required===true&&!groups.some(g=>g.id===group_id&&g.direct_payment===true)}))};
 }
 export async function checkoutOperations(body,email,env){
  if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
  if(!Array.isArray(body.items)||!body.items.length||body.items.length>50||new Set(body.items.map(x=>x.product_id)).size!==body.items.length)throw opsError('商品選擇無效');
- const identity={email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed};
+ const preference=body.group_id===BENEFIT_GROUP?normalizeBenefitPreference(body.benefit_preference):null;
+ const application={...(body.contact!==undefined?{contact:String(body.contact).trim().slice(0,200)}:{}),...(body.delivery_method!==undefined?{delivery_method:String(body.delivery_method).trim().slice(0,200)}:{}),...(body.no_abandon_confirmed!==undefined?{no_abandon_confirmed:body.no_abandon_confirmed===true}:{})};
+ const identity={...application,...(preference?{benefit_preference:preference}:{}),email,name:body.name,group_id:body.group_id,items:body.items,adult_confirmed:body.adult_confirmed,terms_confirmed:body.terms_confirmed,...(body.review_only===true?{review_only:true}:{})};
  if(body.adult_confirmed!==true||body.terms_confirmed!==true)throw opsError('請確認成年及購物須知');
  const requestHash=await hash(JSON.stringify(identity));const key='checkout:'+body.key;
  const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('識別碼已被其他內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
- const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
- const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units};});
- if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
- return executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
+ for(let attempt=0;attempt<4;attempt++){
+  const current=await loadOperations(env),catalog=publicOperationsCatalog(current.state);
+  if(remainingGroupCapacity(current.state,body.group_id)===0)throw opsError('本團已額滿，暫停接受新訂購申請',409);
+  if(!catalog.groups.some(g=>g.id===body.group_id))throw opsError('團次已截止或未開放',409);
+  const items=body.items.map(x=>{const p=(current.state.products||[]).find(p=>p.id===x.product_id&&p.group_id===body.group_id&&catalog.products.some(a=>a.id===p.id));if(!p||!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>99||(p.quantity_limit&&x.quantity>p.quantity_limit))throw opsError('商品或數量已不可訂購',409);if(body.review_only===true&&(catalog.groups.find(g=>g.id===body.group_id)?.direct_payment===true||p.shipping_units_confirmed!==false||p.manual_review_required!==true))throw opsError('商品已變更為一般訂購或不再受理人工審核，請重新整理商品頁',409);return {name:p.name,sku:p.sku,variant:p.variant,quantity:x.quantity,unit_price_twd:p.price_twd,shipping_units:p.shipping_units_confirmed===false?null:p.shipping_units,shipping_units_confirmed:p.shipping_units_confirmed!==false};});
+  const remaining=remainingGroupCapacity(current.state,body.group_id);
+  if(remaining!==null&&items.reduce((n,x)=>n+x.quantity,0)>remaining)throw opsError('本團剩餘接單名額不足，請重新整理商品頁',409);
+  if(items.reduce((n,x)=>n+x.quantity*x.unit_price_twd,0)>22000)throw opsError('超過本單商品款上限',409);
+  const admission=body.group_id===BENEFIT_GROUP?starTraceAdmission(current.state,items):null;
+  try{
+   return await executeOperation({key,version:current.version,command:{type:'order_save',id:'PL3-'+body.key,group_id:body.group_id,email,name:body.name,items,application,customer_checkout:true,...(admission?{admission}:{}),...(preference?{benefit_preference:{...preference,estimate:benefitEstimate(items),submitted_at:new Date().toISOString(),source:'客人驗證Email後隨訂單送出'}}:{}),first_channel:'transfer',acceptance:{adult_confirmed:true,terms_confirmed:true,terms_version:'PL3-two-stage-20261104',accepted_at:new Date().toISOString()}}},email,env,{requestIdentity:identity});
+  }catch(e){if(e.status!==409||attempt===3)throw e;}
+ }
 }

@@ -1,3 +1,4 @@
+import {reportMailFailure} from "./mail-failure-alert.js";
 import{legacyOperationsCatalog}from './storefront-handoff.js';
 import storefrontPreview from './storefront-preview-html.js';
 import storefrontCutover from './storefront-cutover-source.js';
@@ -9,6 +10,10 @@ import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} fr
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
+import { paymentInstructionsFor } from './payment-instructions.js';
+import { qaPaymentBillSet, qaPaymentBillStatus, qaPaymentBillForCustomer, qaPaymentReport } from './qa-payment-bill.js';
+import {qaNoticeBackfillStart,qaNoticeBackfillSet,qaNoticeBackfillStatus} from './qa-notice-backfill.js';
+import { BENEFIT_GROUP } from './benefit-checkout.js';
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import starTraceHtml from './star-trace-html.js';
 import operationsHtml from "./operations-html.js";
@@ -22,11 +27,15 @@ import { drainOutbox } from "./sync-outbox.js";
 import {qaPaymentStart,qaPaymentDrain,qaPaymentStatus} from './qa-payment-phases.js';
 import { inspectFormalSync, formalProjectionForOrder, drainFormalOutbox } from "./formal-sync.js";
 import adminHtml from "./admin-html.js";
-import { createAdminSession, readAdminSession, revokeAdminSession, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
+import qaHtml from "./admin-qa-html.js";
+import qaBrowserJs from "./admin-qa-browser.js";
+import { createAdminSession, readAdminSession, revokeAdminSession, revokeAllAdminSessions, requireRecentAdminSession, stepUpScopeForOperationsCommand, sessionCookie, clearSessionCookie, requireSameOriginAction } from "./admin-session.js";
 import { customerSessionCookie, readCustomerSessionCookie, clearCustomerSessionCookie } from "./customer-session.js";
 // PL 3.0 staging API candidate. Requires migration 0002 and Worker secrets.
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
+// Report-only policy keeps the enforced UI policy unchanged while measuring breakage.
+const CSP_MONITOR = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; font-src 'self' data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; report-uri /api/security/csp-report";
 const encoder = new TextEncoder();
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
 const unb64 = s => Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")), c=>c.charCodeAt(0));
@@ -51,7 +60,7 @@ async function jsonBody(request) {
 function requireConfig(env,...names) { for(const n of names) if(!env[n]) fail("Service not configured",503); }
 async function tokenFor(env,email) {
   const expiry=Math.floor(Date.now()/1000)+3600;
-  const payload=b64(encoder.encode(JSON.stringify({email,exp:expiry})));
+  const payload=b64(encoder.encode(JSON.stringify({email,iat:Math.floor(Date.now()/1000),exp:expiry})));
   return payload+"."+await hmac(env.SESSION_SECRET,payload);
 }
 async function authorizedEmail(request,env) {
@@ -113,22 +122,48 @@ async function sendOtpViaGmail(env,to,code) {
     fail("Unable to send verification email",503);
   }
 }
-async function otpRequest(body,env) {
+async function otpRequest(body,env,request) {
   requireConfig(env,"OTP_PEPPER","GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN","GMAIL_SENDER");
   const email=emailOf(body.email);if(!email) fail("Invalid email");
   const windowStart=new Date(Math.floor(Date.now()/3600000)*3600000).toISOString();
-  const rate=await env.DB.prepare("SELECT count FROM email_rate_limits WHERE email=? AND purpose='otp' AND window_start=?").bind(email,windowStart).first();
-  if((rate?.count||0)>=5) fail("Too many requests",429);
+  const latest=await env.DB.prepare("SELECT created_at FROM otp_codes WHERE email=? ORDER BY created_at DESC LIMIT 1").bind(email).first();
+  if(latest&&Date.parse(String(latest.created_at).replace(" ","T")+ (String(latest.created_at).includes("Z")?"":"Z"))>Date.now()-60000)
+    fail("請稍後再要求新的驗證碼",429);
+  // The Cloudflare-provided IP is HMAC-like pepper-hashed before persisting; never store raw IPs.
+  const ip=request?.headers.get("CF-Connecting-IP")||"";
+  const ipKey=ip?"ip:"+await digest(env.OTP_PEPPER+":ip:"+ip):null;
+  const claims=[{key:email,purpose:"otp",limit:5},...(ipKey?[{key:ipKey,purpose:"otp_ip",limit:30}]:[])];
+  for(const claim of claims) {
+    const rate=await env.DB.prepare("SELECT count FROM email_rate_limits WHERE email=? AND purpose=? AND window_start=?")
+      .bind(claim.key,claim.purpose,windowStart).first();
+    if((rate?.count||0)>=claim.limit)fail("Too many requests",429);
+  }
+  // Claim counters before sending, so concurrent requests cannot bypass the hourly ceiling.
+  for(const claim of claims) {
+    const reserved=await env.DB.prepare("INSERT INTO email_rate_limits(email,purpose,window_start,count) VALUES(?,?,?,1) ON CONFLICT(email,purpose,window_start) DO UPDATE SET count=count+1 WHERE count<? RETURNING count")
+      .bind(claim.key,claim.purpose,windowStart,claim.limit).first();
+    if(!reserved)fail("Too many requests",429);
+  }
   const bytes=crypto.getRandomValues(new Uint32Array(1));
   const code=String(bytes[0]%1000000).padStart(6,"0");
   const id=crypto.randomUUID();
   const expires=new Date(Date.now()+10*60000).toISOString();
   const hash=await digest(env.OTP_PEPPER+":"+email+":"+code);
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO otp_codes(id,email,code_hash,expires_at) VALUES(?,?,?,?)").bind(id,email,hash,expires),
-    env.DB.prepare("INSERT INTO email_rate_limits(email,purpose,window_start,count) VALUES(?,'otp',?,1) ON CONFLICT(email,purpose,window_start) DO UPDATE SET count=count+1").bind(email,windowStart)
-  ]);
-  await sendOtpViaGmail(env,email,code);
+  await env.DB.prepare("INSERT INTO otp_codes(id,email,code_hash,expires_at) VALUES(?,?,?,?)").bind(id,email,hash,expires).run();
+  try {
+    await sendOtpViaGmail(env,email,code);
+  } catch (error) {
+    // A failed Gmail delivery must not burn the customer's OTP or hourly quota.
+    // Delete only this attempt; preserve other in-flight or previously sent codes.
+    await env.DB.prepare("DELETE FROM otp_codes WHERE id=?").bind(id).run();
+    for (const claim of claims) {
+      await env.DB.prepare("UPDATE email_rate_limits SET count=MAX(0,count-1) WHERE email=? AND purpose=? AND window_start=?")
+        .bind(claim.key,claim.purpose,windowStart).run();
+    }
+    try { await reportMailFailure(env,"otp",error?.status===503?"GMAIL_DELIVERY_UNAVAILABLE":"OTP_MAIL_FAILURE"); }
+    catch(alertError){console.error("PL3 mail alert handling failed",String(alertError?.message||"unknown").slice(0,60));}
+    throw error;
+  }
   return {ok:true,message:"Verification code sent"};
 }
 async function otpVerify(body,env) {
@@ -208,6 +243,20 @@ async function authorizedOwner(request,env) {
   if(!bearer&&request.method!=="GET") requireSameOriginAction(request);
   return email;
 }
+async function requireOwnerStepUp(request,env,scope="high") {
+  const bearer=request.headers.get("Authorization");
+  if(bearer) {
+    // The owner API bearer is accepted only immediately after an OTP challenge.
+    await authorizedOwner(request,env);
+    const payload=bearer.slice(7).split(".")[0];
+    let data;try{data=JSON.parse(new TextDecoder().decode(unb64(payload)));}catch{fail("Authentication required",401);}
+    const now=Math.floor(Date.now()/1000);
+    if(!Number.isInteger(data.iat)||data.iat>now+60||now-data.iat>300)fail("高風險操作須重新驗證 Email。",428);
+  } else {
+    const session=await readAdminSession(request,env);
+    requireRecentAdminSession(session,scope);
+  }
+}
 async function privateQaCheckout(body,env){
   if(env.PL3_FORMAL_SYNC_ENABLED!=="true"&&env.PL3_FORMAL_SYNC_ENABLED!=="1")fail("QA sync is not enabled",409);
   const key=String(body.idempotency_key||"");
@@ -260,7 +309,12 @@ async function paymentReport(body,email,env) {
   return {ok:true,report_id:id,status:"pending_review"};
 }
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil((async()=>{try{await recoverMailClaims(env);await drainOperationsMirror(env,{limit:2});const current=await loadOperations(env);for(const g of current.state.groups.filter(g=>g.auto_close&&g.status==='open'&&g.deadline&&Date.parse(g.deadline)<=Date.now())){const latest=await loadOperations(env);await executeOperation({key:'auto-close:'+g.id+':'+Date.parse(g.deadline),version:latest.version,command:{type:'close_group',group_id:g.id,payment_due_at:g.payment_due_at}},'system:approved-deadline',env);}const rows=await env.DB.prepare("SELECT notice_id FROM pl_ops_mail WHERE status='queued' ORDER BY approved_at LIMIT 5").all();for(const r of rows.results||[])await sendQueuedNotice(env,r.notice_id,(n,key)=>sendOperationsMail(env,n,key));}catch{console.error("Operations scheduled task unavailable");}})());},
+  async scheduled(event,env,ctx){ctx.waitUntil((async()=>{try{
+    // Only short-lived authentication artifacts are automatically purged.
+    // Financial receipts, customer orders, payment evidence and backups are untouched.
+    await env.DB.prepare("DELETE FROM otp_codes WHERE datetime(expires_at)<datetime('now','-2 days')").run();
+    await env.DB.prepare("DELETE FROM email_rate_limits WHERE datetime(window_start)<datetime('now','-2 days')").run();
+    await recoverMailClaims(env);await drainOperationsMirror(env,{limit:2});const current=await loadOperations(env);for(const g of current.state.groups.filter(g=>g.auto_close&&g.status==='open'&&g.id!==BENEFIT_GROUP&&g.deadline&&Date.parse(g.deadline)<=Date.now())){const latest=await loadOperations(env);await executeOperation({key:'auto-close:'+g.id+':'+Date.parse(g.deadline),version:latest.version,command:{type:'close_group',group_id:g.id,payment_due_at:g.payment_due_at}},'system:approved-deadline',env);}const rows=await env.DB.prepare("SELECT notice_id FROM pl_ops_mail WHERE status='queued' ORDER BY approved_at LIMIT 5").all();for(const r of rows.results||[])await sendQueuedNotice(env,r.notice_id,(n,key)=>sendOperationsMail(env,n,key));}catch{console.error("Operations scheduled task unavailable");}})());},
   async fetch(request,env) {
     const url=new URL(request.url),origin=request.headers.get("Origin")||"";
     if(request.method==="OPTIONS") {
@@ -269,9 +323,26 @@ export default {
     }
     try {
       if(!env.DB)fail("Database binding missing",503);
-      if(request.method==="GET"&&["/","/index.html"].includes(url.pathname))return new Response(homepageHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"}});
-      if(request.method==="GET"&&["/privacy","/privacy.html"].includes(url.pathname))return new Response(privacyHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
-      if(url.pathname==="/admin-test"&&request.method==="GET") {
+      if(url.pathname==="/api/security/csp-report"&&request.method==="POST"){
+        if(Number(request.headers.get("content-length")||0)>8192)return new Response(null,{status:413});
+        const body=await request.text();if(body.length>8192)return new Response(null,{status:413});
+        // Reports can contain private URLs. Log only allowlisted directive names.
+        try {
+          const report=JSON.parse(body),violation=report?.["csp-report"]?.["violated-directive"]||report?.[0]?.body?.effectiveDirective||"";
+          const directive=String(violation).split(" ")[0];
+          if(["default-src","script-src","style-src","img-src","connect-src","font-src","base-uri","object-src","frame-ancestors"].includes(directive))console.warn("PL3 CSP report-only violation",directive);
+        }catch{/* Invalid reports are ignored without logging user-controlled bodies. */}
+        return new Response(null,{status:204});
+      }
+      if(request.method==="GET"&&["/","/index.html"].includes(url.pathname))return new Response(homepageHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      if(request.method==="GET"&&["/privacy","/privacy.html"].includes(url.pathname))return new Response(privacyHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      // Public, read-only storefront markup for the official front-door Worker.
+      // The owner-only /storefront-preview diagnostic remains gated below.
+      if(url.pathname==='/public-storefront'&&request.method==='GET')return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
+      // Diagnostic pages must never be served by the production-cutover worker.
+      // Staging access requires an explicit flag and an authenticated owner.
+      if(url.pathname==="/admin-test"&&request.method==="GET"&&env.PL3_PRODUCTION_CUTOVER!=="true"&&env.PL3_ENABLE_TEST_ROUTES==="true") {
+        await authorizedOwner(request,env);
         return new Response(adminHtml,{status:200,headers:{
           "Content-Type":"text/html; charset=utf-8",
           "Cache-Control":"no-store",
@@ -281,10 +352,32 @@ export default {
           "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         }});
       }
-      if(url.pathname==='/storefront-preview'&&request.method==='GET')return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
+      if(url.pathname==='/storefront-preview'&&request.method==='GET'&&env.PL3_PRODUCTION_CUTOVER!=="true"&&env.PL3_ENABLE_TEST_ROUTES==="true"){
+        await authorizedOwner(request,env);
+        return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
+      }
       if(url.pathname==='/storefront-cutover.js'&&request.method==='GET')return new Response(storefrontCutover,{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
       if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog((await loadOperations(env)).state),200,origin);
-      if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'"}});
+      if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
+      if(url.pathname==="/admin-qa-payment-bill"&&request.method==="GET"){
+        return Response.redirect(new URL("/admin-qa#qa-payment-bill",request.url),302);
+      }
+      if(url.pathname==="/admin-qa"&&request.method==="GET"){
+        try {
+          await authorizedOwner(request,env);
+        } catch (error) {
+          if (error.status !== 401) throw error;
+          // Only the fixed QA path is accepted as a post-login destination.
+          // Do not expose the owner-only HTML to an unauthenticated request.
+          return Response.redirect(new URL("/admin-operations?return_to=%2Fadmin-qa",request.url),302);
+        }
+        return new Response(qaHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"no-referrer","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});
+      }
+      if(url.pathname==="/admin-qa.js"&&request.method==="GET"){
+        await authorizedOwner(request,env);
+        return new Response(qaBrowserJs,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+      }
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
       if(url.pathname==="/api/operations/service-requests"&&request.method==="GET"){const email=await authorizedEmail(request,env);return response({ok:true,requests:customerServiceView((await loadOperations(env)).state,email)},200,origin);}
       if(['/api/operations/service-request','/api/operations/service-action'].includes(url.pathname)&&request.method==='POST'){
@@ -295,12 +388,15 @@ export default {
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
+        // The command endpoint chooses the step-up window from its validated
+        // command type below; every other protected operation stays high-risk.
+        if((request.method==="POST"&&!["/api/admin/ops/mail-health","/api/admin/ops/command"].includes(url.pathname))||url.pathname==="/api/admin/ops/export")await requireOwnerStepUp(request,env);
         if(url.pathname==="/api/admin/ops/receiver-source"&&request.method==="GET")return new Response(operationsReceiverSource,{headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
         if(url.pathname==="/api/admin/ops/export"&&request.method==="GET"){
           return response(await exportOperationsBackup(env),200,origin);
         }
         if(url.pathname==="/api/admin/ops/sync-retry-blocked"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='blocked'").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
-        if(url.pathname==="/api/admin/ops/sync-recheck-revisions"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='conflict' AND destination='notion' AND error_code='OPS_NOTION_REVISION_CHANGED' AND delivered_hash IS NULL").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
+        if(url.pathname==="/api/admin/ops/sync-recheck-revisions"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='conflict' AND destination='notion' AND error_code='OPS_NOTION_REVISION_CHANGED'").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
         if(url.pathname==="/api/admin/ops/sync-recheck-sheet-format"&&request.method==="POST"){const r=await env.DB.prepare("UPDATE pl_ops_sync_deliveries SET status='pending',error_code=NULL,next_retry_at=NULL WHERE status='conflict' AND destination='sheets' AND error_code='OPS_SHEET_MANUAL_EDIT'").run();return response({ok:true,requeued:r.meta?.changes||0},200,origin);}
         if(url.pathname==="/api/admin/ops/sync-status"&&request.method==="GET")return response(await operationsMirrorStatus(env),200,origin);
         if(url.pathname==="/api/admin/ops/sync-drain"&&request.method==="POST")return response(await drainOperationsMirror(env),200,origin);
@@ -320,11 +416,27 @@ export default {
         }
         if(url.pathname==="/api/admin/ops/install"&&request.method==="POST")return response(await installOperations(env),200,origin);
         if(url.pathname==="/api/admin/ops"&&request.method==="GET")return response(await operationsView(env),200,origin);
+        if(url.pathname==="/api/admin/ops/attachment"&&request.method==="POST"){
+          const raw=await request.text();
+          if(raw.length>1401000)fail('附件請求超過1MB上限',413);
+          let body;try{body=JSON.parse(raw)}catch{fail('附件資料格式錯誤')}
+          return response(await saveOperationsAttachment(body,actor,env),200,origin);
+        }
+        if(url.pathname==="/api/admin/ops/attachment"&&request.method==="GET"){
+          const id=url.searchParams.get('id');
+          if(!id||!/^[0-9a-f-]{36}$/i.test(id))fail('附件識別碼無效');
+          const row=await env.DB.prepare('SELECT name,mime_type,base64_data FROM pl_ops_attachments WHERE id=?').bind(id).first();
+          if(!row)fail('附件不存在',404);
+          const bytes=Uint8Array.from(atob(row.base64_data),c=>c.charCodeAt(0));
+          return new Response(bytes,{headers:{'Content-Type':row.mime_type,'Content-Disposition':`attachment; filename="${String(row.name).replace(/[^\x20-\x7e]|["\\]/g,'_')}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'}});
+        }
         if(url.pathname==="/api/admin/ops/import"&&request.method==="POST"){
           const raw=await request.text();if(raw.length>1000000)fail("Import too large",413);let data;try{data=JSON.parse(raw);}catch{fail("Invalid JSON");}return response(await importOperations(data,actor,env),200,origin);
         }
         if(url.pathname==="/api/admin/ops/command"&&request.method==="POST"){
-          const body=await jsonBody(request);if(body.command?.type==='payment_report'||['service_request','service_customer_accept','service_customer_decline'].includes(body.command?.type))fail("Use customer payment report endpoint");
+          const body=await jsonBody(request);
+          await requireOwnerStepUp(request,env,stepUpScopeForOperationsCommand(body.command?.type));
+          if(body.command?.type==='payment_report'||['service_request','service_customer_accept','service_customer_decline'].includes(body.command?.type))fail("Use customer payment report endpoint");
           const result=await executeOperation(body,actor,env);
           if(result.result?.queue&&!result.replayed)result.delivery=await sendQueuedNotice(env,result.result.notice_id,(n,key)=>sendOperationsMail(env,n,key));
           return response(result,200,origin);
@@ -338,6 +450,7 @@ export default {
       }
       if(url.pathname.startsWith('/api/admin/star-trace')){
         const actor=await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
         if(url.pathname==='/api/admin/star-trace'&&request.method==='GET')return response(await readStarTrace(env),200,origin);
         if(url.pathname==='/api/admin/star-trace/install'&&request.method==='POST')return response(await installStarTrace(env),200,origin);
         if(url.pathname==='/api/admin/star-trace/command'&&request.method==='POST')return response(await commandStarTrace(env,actor,await jsonBody(request)),200,origin);
@@ -348,10 +461,13 @@ export default {
       }
       if(url.pathname==="/api/operations/my-orders"&&request.method==="GET"){
         const customer=await authorizedEmail(request,env);const {state}=await loadOperations(env);const owned=state.orders.filter(o=>o.email?.toLowerCase()===customer);
-        return response({ok:true,orders:owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,status:r.status,created_at:r.created_at}))}))},200,origin);
+        const qa=await qaPaymentBillForCustomer(env,state,customer);
+        return response({ok:true,orders:[...owned.map(o=>({id:o.id,status:o.status,live_status:operatingStatus(state,o),source_status:o.source_status,raw_item_text:o.raw_item_text,group_title:state.groups.find(g=>g.id===o.group_id)?.title||null,application:o.application?{contact:o.application.contact,delivery_method:o.application.delivery_method}:null,benefit_preference:o.benefit_preference?{members:o.benefit_preference.members,allow_repeat:o.benefit_preference.allow_repeat,prefer_full_set:o.benefit_preference.prefer_full_set!==false}:null,items:o.items.map(l=>({name:l.name,variant:l.variant,quantity:l.quantity,sku:l.sku,unit_price_twd:l.unit_price_twd,fulfillment_kind:l.fulfillment_kind,purchased:l.purchased,overseas:l.overseas,transit:l.transit,taiwan:l.taiwan,shipped:l.shipped,delivered:l.delivered})),invoices:state.invoices.filter(b=>b.order_id===o.id).map(b=>({id:b.id,phase:b.phase,amount_twd:b.amount_twd,outstanding_twd:balance(state,b),finalized:b.finalized,channel:b.channel,due_at:b.due_at,costs:b.costs,carry_twd:b.carry_twd,payment_options:paymentInstructionsFor(state,o,b)})),shipments:state.shipments.filter(sh=>sh.items.some(i=>i.order_id===o.id)).map(sh=>({carrier:sh.carrier,tracking:sh.tracking,cod_twd:sh.cod_twd})),reports:(state.reports||[]).filter(r=>r.order_id===o.id).map(r=>({amount_twd:r.amount_twd,phase:r.phase||null,paid_at:r.paid_at||null,status:r.status,created_at:r.created_at}))})),...(qa?[qa]:[])]},200,origin);
       }
       if(url.pathname==="/api/operations/payment-report"&&request.method==="POST"){
-        const customer=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);
+        const customer=await authorizedEmail(request,env),body=await jsonBody(request);
+        if(body?.command?.order_id==='PL3-QA-PAYMENT-DISPLAY')return response(await qaPaymentReport(env,customer,body),200,origin);
+        const current=await loadOperations(env);
         return response(await executeOperation({key:body.key,version:current.version,command:{...body,type:undefined,...body.command,type:'payment_report',authenticated_email:customer}},customer,env),200,origin);
       }
       if(url.pathname==="/health"&&request.method==="GET") {
@@ -370,7 +486,7 @@ export default {
         const rows=await env.DB.prepare("SELECT id,group_id,official_sku,name,variant,image_url,price_twd,quantity_limit,status,sort_order FROM products WHERE group_id=? ORDER BY sort_order,name LIMIT 500").bind(groupId).all();
         return response({ok:true,products:rows.results||[]},200,origin);
       }
-      if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env),200,origin);
+      if(url.pathname==="/api/auth/request-code"&&request.method==="POST")return response(await otpRequest(await jsonBody(request),env,request),200,origin);
       if(url.pathname==="/api/auth/verify-code"&&request.method==="POST"){
         const verified=await otpVerify(await jsonBody(request),env);
         const result=response(verified,200,origin);
@@ -391,6 +507,7 @@ export default {
         if(!request.headers.get("Authorization")) fail("Authentication required",401);
         requireSameOriginAction(request);
         const owner=await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         const session=await createAdminSession(env,owner);
         const result=response({ok:true,email:owner,expires_at:session.expiresAt},200,origin);
         result.headers.set("Set-Cookie",sessionCookie(session.token));
@@ -411,12 +528,24 @@ export default {
         result.headers.set("Set-Cookie",clearSessionCookie());
         return result;
       }
+      if(url.pathname==="/api/admin/session/revoke-all"&&request.method==="POST") {
+        requireSameOriginAction(request);
+        const session=await readAdminSession(request,env);
+        await requireOwnerStepUp(request,env);
+        requireConfig(env,"PL3_ADMIN_EMAIL");
+        if(session.email!==emailOf(env.PL3_ADMIN_EMAIL))fail("Forbidden",403);
+        const revoked=await revokeAllAdminSessions(env,session.email);
+        const result=response({ok:true,revoked},200,origin);
+        result.headers.set("Set-Cookie",clearSessionCookie());
+        return result;
+      }
       if(url.pathname==="/api/admin/legacy-payments/archive"&&request.method==="GET") {
         await authorizedOwner(request,env);
         return response(await readLegacyArchive(env),200,origin);
       }
       if(url.pathname==="/api/admin/legacy-payments/preview"&&request.method==="POST") {
         await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         const body=await jsonBody(request);
         if(!Array.isArray(body.rows)||!Array.isArray(body.items)||body.rows.length>100||body.items.length>500)
           fail("Invalid legacy review snapshot");
@@ -431,10 +560,12 @@ export default {
       }
       if(url.pathname==="/api/admin/qa/checkout"&&request.method==="POST") {
         await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await privateQaCheckout(await jsonBody(request),env),201,origin);
       }
       if(url.pathname==="/api/admin/qa/payment-report"&&request.method==="POST") {
         await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await privateQaPaymentReport(await jsonBody(request),env),201,origin);
       }
       if(url.pathname==="/api/admin/formal-sync/preview"&&request.method==="GET") {
@@ -445,6 +576,7 @@ export default {
       }
       if(url.pathname==="/api/admin/formal-sync/drain"&&request.method==="POST") {
         await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await drainFormalOutbox(env),200,origin);
       }
       if(url.pathname==="/api/admin/fulfillments"&&request.method==="GET") {
@@ -461,10 +593,28 @@ export default {
       }
       if(url.pathname==="/api/admin/sync/drain"&&request.method==="POST") {
         await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await drainOutbox(env),200,origin);
+      }
+      if(url.pathname.startsWith('/api/admin/qa-payment-bill/')){
+        await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
+        if(url.pathname==='/api/admin/qa-payment-bill/status'&&request.method==='GET')return response(await qaPaymentBillStatus(env),200,origin);
+        if(url.pathname==='/api/admin/qa-payment-bill/set'&&request.method==='POST'){
+          const body=await jsonBody(request);
+          return response(await qaPaymentBillSet(env,body.stage),200,origin);
+        }
+      }
+      if(url.pathname.startsWith('/api/admin/qa-notice-backfill/')){
+        await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
+        if(url.pathname.endsWith('/status')&&request.method==='GET')return response(await qaNoticeBackfillStatus(env),200,origin);
+        if(url.pathname.endsWith('/start')&&request.method==='POST')return response(await qaNoticeBackfillStart(env),200,origin);
+        if(url.pathname.endsWith('/set')&&request.method==='POST')return response(await qaNoticeBackfillSet(env,await jsonBody(request)),200,origin);
       }
       if(url.pathname.startsWith('/api/admin/qa-payment-phases/')){
         await authorizedOwner(request,env);
+        if(request.method==='POST')await requireOwnerStepUp(request,env);
         if(url.pathname.endsWith('/start')&&request.method==='POST')return response(await qaPaymentStart(env),200,origin);
         if(url.pathname.endsWith('/drain')&&request.method==='POST')return response(await qaPaymentDrain(env),200,origin);
         if(url.pathname.endsWith('/status')&&request.method==='GET')return response(await qaPaymentStatus(env),200,origin);
@@ -475,10 +625,12 @@ export default {
       }
       if(url.pathname==="/api/admin/payment-reviews"&&request.method==="POST") {
         const actor=await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await reviewPayment(await jsonBody(request),actor,env),200,origin);
       }
       if(url.pathname==="/api/admin/fulfillment-advances"&&request.method==="POST") {
         const actor=await authorizedOwner(request,env);
+        await requireOwnerStepUp(request,env);
         return response(await advanceFulfillment(await jsonBody(request),actor,env),200,origin);
       }
       if(url.pathname==="/api/orders"&&request.method==="GET")return response(await orders(await authorizedEmail(request,env),env),200,origin);
