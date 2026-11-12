@@ -465,6 +465,17 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   s.reports.push({id,order_id:o.id,customer_email:o.email,amount_twd:c.amount_twd,method:c.method,last5:c.last5||'',phase:reportPhase,paid_at:paidAt,note:text(c.note,1000),status:'pending',created_at:now});
   result={report_id:id,status:'pending'};break;
  }
+ case 'payment_report_void_test':{
+  const r=(s.reports||[]).find(x=>x.id===c.report_id);
+  must(r,'找不到付款回報',404);
+  must(r.status==='pending'&&!r.receipt_id,'僅可作廢未核帳、未關聯實收的測試回報',409);
+  must(text(r.note,1000)==='測試','僅允許作廢明確標示「測試」的回報；其他請保留供人工核對',409);
+  must(c.confirmed===true&&c.bank_transfer_not_made===true&&text(c.reason,2000).length>=8,'須確認這是未實際匯款的測試資料並填寫作廢原因');
+  must(c.expected_order_id===r.order_id&&c.expected_amount_twd===r.amount_twd&&c.expected_last5===r.last5&&c.expected_paid_at===(r.paid_at||null),'付款回報內容已變更，請重新確認',409);
+  must(!s.receipts.some(receipt=>reportMatchesExistingReceipt(s,r,receipt)),'已有關聯的銀行實收分配，不得作廢',409);
+  r.status='void';r.void_kind='test_only';r.void_reason=text(c.reason,2000);r.voided_at=now;r.void_operation_id=id;
+  result={report_id:r.id,order_id:r.order_id,status:'void',receipts_created:0,allocations_created:0,notices_created:0};break;
+ }
  case 'receipt_confirm':{
   must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');must(!s.receipts.some(r=>r.transaction_id===text(c.transaction_id)),'此交易已入帳，請勿重複',409);
   if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.status==='pending','此回報已核對或不存在',409);must(Array.isArray(c.allocations)&&c.allocations.length>0,'請指定款項分配');const ownShare=c.allocations.filter(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);return b?.order_id===report.order_id&&(!report.phase||b.phase===report.phase);}).reduce((sum,a)=>sum+a.amount_twd,0);must(report.customer_email?.toLowerCase()===c.customer_email?.toLowerCase()&&(report.amount_twd===c.amount_twd||report.amount_twd===ownShare&&ownShare>0),'付款回報顧客或金額與入帳不符');must(ownShare>0,'付款回報與所選客單或付款階段不符');must(c.allocations.every(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);const o=s.orders.find(o=>o.id===b?.order_id);return o?.email?.trim().toLowerCase()===report.customer_email?.toLowerCase();}), '合併入帳只能分配給同一顧客的帳單');}

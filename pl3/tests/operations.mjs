@@ -276,3 +276,59 @@ test('pending international shipping accepts applications only, without default 
  current=await loadOperations(env);assert.equal(current.state.invoices.length,1);assert.equal(current.state.notices.length,1);assert.equal(current.state.notices[0].status,'draft');
  env.db.close();
 });
+
+
+test('test-only payment report void preserves audit and excludes pending accounting without any ledger or mail changes',()=>{
+ const f=fixture(),payment={type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:765,method:'銀行匯款',last5:'12345',phase:'first',paid_at:'2026-11-12T07:07:00.000Z',note:'測試'};
+ const reportId=f.go(payment).report_id;
+ assert.equal(operationalTasks(f.state).filter(t=>t.type==='report').length,1);
+ const before={receipts:f.state.receipts.length,allocations:f.state.allocations.length,notices:f.state.notices.length,invoices:f.state.invoices.length};
+ const voidCommand={type:'payment_report_void_test',report_id:reportId,expected_order_id:f.o,expected_amount_twd:765,expected_last5:'12345',expected_paid_at:'2026-11-12T07:07:00.000Z',reason:'主購確認僅為測試回報，沒有發生真實匯款',bank_transfer_not_made:true,confirmed:true};
+ const result=f.go(voidCommand);
+ assert.equal(result.status,'void');
+ const report=f.state.reports[0];
+ assert.equal(report.status,'void');assert.equal(report.void_kind,'test_only');
+ assert.equal(report.amount_twd,765);assert.equal(report.last5,'12345');
+ assert.ok(report.voided_at);assert.ok(report.void_operation_id);
+ assert.equal(f.state.history.at(-1).type,'payment_report_void_test');
+ assert.equal(operationalTasks(f.state).filter(t=>t.type==='report').length,0);
+ for(const [k,v] of Object.entries(before))assert.equal(f.state[k].length,v,k);
+ assert.throws(()=>f.go(voidCommand),/僅可作廢/);
+});
+
+test('void test reports rejects real, confirmed, mismatched or linked payments',()=>{
+ const f=fixture();
+ const add=(note='測試',last5='12345')=>f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:890,method:'銀行匯款',last5,note}).report_id;
+ const reportId=add();
+ const cmd={type:'payment_report_void_test',report_id:reportId,expected_order_id:f.o,expected_amount_twd:890,expected_last5:'12345',expected_paid_at:null,bank_transfer_not_made:true,confirmed:true,reason:'測試資料作廢：銀行確定沒有此筆交易'};
+ assert.throws(()=>f.go({...cmd,confirmed:false}),/須確認/);
+ assert.throws(()=>f.go({...cmd,bank_transfer_not_made:false}),/須確認/);
+ assert.throws(()=>f.go({...cmd,expected_amount_twd:765}),/已變更/);
+ assert.throws(()=>f.go({...cmd,expected_last5:'54321'}),/已變更/);
+ assert.throws(()=>f.go({...cmd,reason:'ok'}),/須確認/);
+ const real=add('已匯款','54321');
+ assert.throws(()=>f.go({...cmd,report_id:real}),/明確標示/);
+ f.go({type:'close_group',group_id:f.g});
+ const bill=f.state.invoices[0];
+ f.go({type:'receipt_confirm',customer_email:'customer@example.com',amount_twd:890,kind:'bank_confirmed',transaction_id:'verified-bank-void-guard',evidence:'bank statement',confirmed:true,allocations:[{invoice_id:bill.id,amount_twd:890}]});
+ assert.throws(()=>f.go(cmd),/已有關聯的銀行實收/);
+ assert.equal(f.state.reports.find(r=>r.id===reportId).status,'pending');
+});
+
+test('void test payment report through operations command uses CAS, persists audit and is replay safe',async()=>{
+ const {db,...env}=dbEnv();await installOperations(env);
+ const f=fixture(),id=f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:765,method:'銀行匯款',last5:'12345',note:'測試'}).report_id;
+ db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(f.state));
+ const cmd={key:'void-test-report-0001',version:0,command:{type:'payment_report_void_test',report_id:id,expected_order_id:f.o,expected_amount_twd:765,expected_last5:'12345',expected_paid_at:null,bank_transfer_not_made:true,confirmed:true,reason:'測試回報未實際匯款，經人工確認作廢'}};
+ const first=await executeOperation(cmd,'owner@example.test',env);
+ assert.equal(first.result.status,'void');assert.equal(first.result.receipts_created,0);assert.equal(first.result.notices_created,0);
+ const repeat=await executeOperation(cmd,'owner@example.test',env);
+ assert.equal(repeat.replayed,true);
+ const view=await operationsView(env);
+ assert.equal(view.state.reports.find(r=>r.id===id).status,'void');
+ assert.equal(view.state.receipts.length,0);assert.equal(view.state.allocations.length,0);assert.equal(view.state.notices.length,0);
+ assert.equal(view.tasks.filter(t=>t.type==='report').length,0);
+ const audit=db.prepare("SELECT COUNT(*) AS n FROM pl_ops_entity_history WHERE kind='reports' AND entity_id=?").get(id);
+ assert.equal(audit.n,1);
+ db.close();
+});
