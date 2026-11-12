@@ -298,7 +298,7 @@ test('test-only payment report void preserves audit and excludes pending account
 
 test('void test reports rejects real, confirmed, mismatched or linked payments',()=>{
  const f=fixture();
- const add=(note='測試')=>f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:890,method:'銀行匯款',last5:'12345',note}).report_id;
+ const add=(note='測試',last5='12345')=>f.go({type:'payment_report',order_id:f.o,authenticated_email:'customer@example.com',amount_twd:890,method:'銀行匯款',last5,note}).report_id;
  const reportId=add();
  const cmd={type:'payment_report_void_test',report_id:reportId,expected_order_id:f.o,expected_amount_twd:890,expected_last5:'12345',expected_paid_at:null,bank_transfer_not_made:true,confirmed:true,reason:'測試資料作廢：銀行確定沒有此筆交易'};
  assert.throws(()=>f.go({...cmd,confirmed:false}),/須確認/);
@@ -306,7 +306,7 @@ test('void test reports rejects real, confirmed, mismatched or linked payments',
  assert.throws(()=>f.go({...cmd,expected_amount_twd:765}),/已變更/);
  assert.throws(()=>f.go({...cmd,expected_last5:'54321'}),/已變更/);
  assert.throws(()=>f.go({...cmd,reason:'ok'}),/須確認/);
- const real=add('已匯款');
+ const real=add('已匯款','54321');
  assert.throws(()=>f.go({...cmd,report_id:real}),/明確標示/);
  f.go({type:'close_group',group_id:f.g});
  const bill=f.state.invoices[0];
