@@ -46,36 +46,18 @@
      for(const[group_id,items]of groups){const payload={name,group_id,items,adult_confirmed:true,terms_confirmed:true,no_abandon_confirmed:true,contact,delivery_method:delivery,...(group_id==='WEVERSE-PLAVE-STARTRACE-261106'?{benefit_preference:preference}:{})};const key=await attemptKey({email:e,...payload});const r=await request('/api/operations/checkout',{key,...payload},token);completed.push(r.result.order_id);receipts.push({group_id,status:r.result.status,direct_payment:r.result.direct_payment===true,order_id:r.result.order_id});cart=cart.filter(line=>!(groups.get(group_id)||[]).some(x=>x.product_id===line.productId));if(typeof saveCart==='function')saveCart();try{const attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.filter(x=>x.key!==key)));}catch{}}
      if(typeof renderCart==='function')renderCart();if(typeof renderProducts==='function')renderProducts();
      checkout.classList.remove('hidden');btn.hidden=true;
-     const directReceipts=receipts.filter(r=>r.direct_payment&&r.status!=='waitlisted');
+     const hasDirectPayment=receipts.some(r=>r.direct_payment&&r.status!=='waitlisted');
      const notices=['訂購申請已送出！編號：'+completed.join('、')+'。'];
      if(receipts.some(r=>r.status==='waitlisted'))notices.push('候補訂單尚未取得採購名額，請等候後續通知，暫無須付款。');
      if(receipts.some(r=>r.group_id==='WEVERSE-PLAVE-STARTRACE-261106'&&r.status!=='waitlisted'))notices.push('一販未買到的品項將保留至官方二販（如有）；成功購得後才通知第一階段付款，運費於二補結算。兩販未得或無二販則另公告處理時間。');
      if(receipts.some(r=>!r.direct_payment&&r.status!=='waitlisted'&&r.group_id!=='WEVERSE-PLAVE-STARTRACE-261106'))notices.push('一般預購將於結單後提供第一階段付款通知，運費另於二補核算。');
-     show(notices.join(''),'ok');
-     if(directReceipts.length){
-      let shown=0;
-      document.getElementById('plDirectPayment')?.remove();
+     document.getElementById('plDirectPayment')?.remove();
+     if(hasDirectPayment){
+      notices.push('請到「我的訂單」選擇付款方式，查看一補金額、期限及收款資料，付款後請回報。');
       const payment=document.createElement('section');payment.id='plDirectPayment';checkout.append(payment);
       const paymentLink=document.createElement('a');paymentLink.href=base+'/account';paymentLink.className='legacyPrimary';paymentLink.textContent='前往我的訂單查看付款資料與回報 →';payment.append(paymentLink);
-      try{
-       const data=await request('/api/operations/my-orders',undefined,token);
-       for(const receipt of directReceipts){
-        const order=data.orders.find(o=>o.id===receipt.order_id);
-        const bill=order?.invoices.find(b=>b.phase==='first'&&b.payment_options?.length);
-        if(!bill)continue;
-        const details=document.createElement('p');
-        const deadline=new Date(bill.due_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
-        const accounts=bill.payment_options.map(p=>p.method+' '+p.bank_code+' '+p.account).join(' ／ ');
-        details.textContent=order.id+'｜一補 NT$'+bill.outstanding_twd+'｜付款及回報期限 '+deadline+'（台灣時間）｜'+accounts;
-        payment.insertBefore(details,paymentLink);
-        shown++;
-       }
-      }catch{ /* The saved order remains accessible from the secure account page. */ }
-      if(shown)notices.push('一補金額、付款期限及匯款資料請見下方。匯款後請回報付款。');
-      if(shown<directReceipts.length)notices.push(shown?'其餘可直接匯款的訂單，請到「我的訂單」查看付款資料。':'請到「我的訂單」查看一補金額、付款期限及匯款資料。');
-      else paymentLink.textContent='前往我的訂單回報付款 →';
-      show(notices.join(''),'ok');
      }
+     show(notices.join(''),'ok');
     }catch(e){if(completed.length){if(typeof renderCart==='function')renderCart();checkout.classList.remove('hidden');}show((completed.length?'已保存 '+completed.join('、')+'；其他商品尚未送出：':'')+e.message);}
     finally{busy=false;btn.disabled=false;send.disabled=false;btn.textContent='驗證並送出訂購申請 →';}
    };
