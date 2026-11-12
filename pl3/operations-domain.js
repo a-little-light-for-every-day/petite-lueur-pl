@@ -5,6 +5,7 @@ import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{settleLegacyPayment}from './legacy-payment-settlement.js';
 import{applyService}from './operations-services.js';
 import{groupCapacityLimit,occupiedGroupQuantity}from './group-capacity.js';
+import{PRODUCT_CATEGORIES,inferProductCategory}from './product-category.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
 const must=(ok,m,status=400)=>{if(!ok)throw failure(m,status);};
@@ -215,11 +216,13 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(validURL(c.source_url),'請填官方HTTPS來源');if(c.image_url)must(validURL(c.image_url),'圖片必須是HTTPS網址');
   if(c.published)must(c.confirmed===true&&(!c.image_url||c.image_official===true),'上架前須確認商品內容；有圖時須為官方原圖');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
+  const productType=c.product_type??prior?.product_type??inferProductCategory({name:c.name});
+  must(PRODUCT_CATEGORIES.includes(productType),'商品類型無效，請從商品分類選單選擇');
   const shippingConfirmed=c.shipping_units_confirmed!==false;
   if(shippingConfirmed)positive(c.shipping_units);
   if(c.published&&!shippingConfirmed)must(c.manual_review_required===true||s.groups.find(g=>g.id===c.group_id)?.direct_payment===true,'國際運費待實算商品必須啟用人工審核申請，不能作為一般訂單');
   must(!(s.products||[]).some(p=>p.id!==pid&&p.group_id===c.group_id&&p.sku===text(c.sku)&&p.variant===text(c.variant)),'同團貨號與規格重複');
-  const p={id:pid,group_id:c.group_id,name:text(c.name),sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:shippingConfirmed?c.shipping_units:null,shipping_units_confirmed:shippingConfirmed,manual_review_required:!shippingConfirmed&&c.manual_review_required===true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
+  const p={id:pid,group_id:c.group_id,name:text(c.name),product_type:productType,sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:shippingConfirmed?c.shipping_units:null,shipping_units_confirmed:shippingConfirmed,manual_review_required:!shippingConfirmed&&c.manual_review_required===true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
   s.products=s.products||[];if(prior)Object.assign(prior,p);else s.products.push(p);result={product_id:pid};break;
  }
  case 'order_group':{
