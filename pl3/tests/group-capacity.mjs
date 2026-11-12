@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { newOperations } from '../operations-domain.js';
+import { paymentInstructionsFor } from '../payment-instructions.js';
 import { installOperations, loadOperations, checkoutOperations, executeOperation, publicOperationsCatalog } from '../operations-store.js';
 import { legacyOperationsCatalog } from '../storefront-handoff.js';
 import { MAYLA_VIOLET_SKIRT_GROUP, HANAYUME_23_CLAIM_GROUP, remainingGroupCapacity } from '../group-capacity.js';
@@ -148,5 +149,38 @@ test('configurable capacity survives concurrent checkouts; null means no group c
   assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
   assert.equal(results.filter(x=>x.status==='rejected').length,1);
   assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),1);
+ } finally {db.close();}
+});
+
+test('direct payment atomically reserves stock and opens an authenticated goods-only bill', async () => {
+ const {env,db}=makeEnvironment();
+ try {
+  await installOperations(env);
+  const state=newOperations(),gid='QA-DIRECT-PAYMENT';
+  state.groups=[{id:gid,title:'QA',status:'open',deadline:'2099-01-01T00:00:00Z',payment_due_at:'2099-01-01T00:00:00Z',capacity_limit:15,direct_payment:true}];
+  state.products=[{id:'qa-direct',group_id:gid,name:'QA',sku:'QA',price_twd:765,shipping_units_confirmed:false,status:'available',published:true}];
+  state.config.payment_accounts={bank_transfer:'000000000000'};
+  db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(state));
+  const body={key:'qa-direct-checkout-0001',group_id:gid,name:'QA',items:[{product_id:'qa-direct',quantity:15}],adult_confirmed:true,terms_confirmed:true};
+  const customer='qa@example.test';
+  const placed=await checkoutOperations(body,customer,env);
+  assert.equal(placed.result.direct_payment,true);
+  assert.equal((await checkoutOperations(body,customer,env)).replayed,true);
+  const current=await loadOperations(env);
+  const [order]=current.state.orders,[bill]=current.state.invoices;
+  assert.equal(current.state.invoices.length,1);
+  assert.equal(order.status,'active');
+  assert.equal(order.items[0].shipping_units,null);
+  assert.equal(remainingGroupCapacity(current.state,gid),0);
+  assert.equal(bill.amount_twd,11475);
+  assert.equal(bill.notified,false);
+  assert.equal(current.state.notices.length,0);
+  assert.equal(paymentInstructionsFor(current.state,order,bill).length,1);
+  assert.deepEqual(paymentInstructionsFor(current.state,order,bill,Date.parse(bill.due_at)),[]);
+  const report={type:'payment_report',order_id:order.id,authenticated_email:customer,amount_twd:11475,phase:'first',method:'銀行匯款',last5:'00000'};
+  await executeOperation({key:'qa-direct-report-0001',version:current.version,command:report},customer,env);
+  const reported=await loadOperations(env);
+  assert.equal(reported.state.reports[0].status,'pending');
+  assert.equal(reported.state.receipts.length,0);
  } finally {db.close();}
 });

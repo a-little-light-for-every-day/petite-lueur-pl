@@ -5,9 +5,9 @@ import {balance} from './operations-domain.js';
 export function paymentInstructionsFor(s,order,bill,now=Date.now()){
  if(!order||!bill||bill.order_id!==order.id)return [];
  if(['cancelled','excluded','completed','waitlisted','review_pending'].includes(order.status))return [];
- if(!bill.finalized||bill.notified!==true||bill.status==='void'||bill.channel==='cod')return [];
+ if(!bill.finalized||(bill.notified!==true&&bill.issue_basis!=='direct_payment')||bill.status==='void'||bill.channel==='cod')return [];
  if(!(balance(s,bill)>0))return [];
- if(bill.due_at){const deadline=Date.parse(bill.due_at);if(!Number.isFinite(deadline)||deadline<now)return [];}
+ if(bill.due_at){const deadline=Date.parse(bill.due_at);if(!Number.isFinite(deadline)||deadline<=now)return [];}
  const accounts=s.config?.payment_accounts||{};
  const valid=x=>typeof x==='string'&&/^\d{10,16}$/.test(x);
  return [
