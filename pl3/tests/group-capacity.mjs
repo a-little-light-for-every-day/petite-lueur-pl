@@ -103,3 +103,50 @@ test('five already-purchased Hanayume copies can be claimed without a fabricated
   await assert.rejects(()=>submit('hanayume-claim-00004',1),/本團已額滿/);
  } finally {db.close();}
 });
+
+
+test('owner edits a dynamic group cap without changing code; full group blocks checkout and cancellation releases slots', async () => {
+ const {env,db}=makeEnvironment();
+ try {
+  await installOperations(env);
+  const state=newOperations(),gid='QA-DYNAMIC-CAP';
+  state.groups=[{id:gid,title:'Hello Kitty',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:3}];
+  state.products=[{id:'kitty',group_id:gid,name:'Kitty',sku:'NEOGDS-1101690',variant:'',price_twd:765,shipping_units:1,status:'available',published:true}];
+  db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(state));
+  const request=(key,quantity)=>checkoutOperations({key,group_id:gid,name:'QA',items:[{product_id:'kitty',quantity}],adult_confirmed:true,terms_confirmed:true},key+'@example.test',env);
+  assert.equal(remainingGroupCapacity(state,gid),3);
+  await request('dynamic-hello-order-0001',2);
+  const attempt=await loadOperations(env);
+  await assert.rejects(()=>executeOperation({key:'qa-lower-cap-0001',version:attempt.version,command:{type:'group_save',id:gid,title:'Hello Kitty',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:1}},'owner@example.test',env),/上限不得低於現有有效申請/);
+  await request('dynamic-hello-order-0002',1);
+  assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),0);
+  assert.equal(publicOperationsCatalog((await loadOperations(env)).state).products.length,0);
+  await assert.rejects(()=>request('dynamic-hello-order-0003',1),/本團已額滿/);
+  const current=await loadOperations(env);
+  await executeOperation({key:'qa-cancel-hello-0001',version:current.version,command:{type:'order_cancel',order_id:'PL3-dynamic-hello-order-0001',confirmed:true,reason:'QA release'}},'owner@example.test',env);
+  assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),2);
+  await request('dynamic-hello-order-0004',2);
+  assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),0);
+  const after=await loadOperations(env);
+  await executeOperation({key:'qa-raise-cap-0001',version:after.version,command:{type:'group_save',id:gid,title:'Hello Kitty',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:15}},'owner@example.test',env);
+  assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),12);
+ } finally {db.close();}
+});
+
+test('configurable capacity survives concurrent checkouts; null means no group cap', async () => {
+ const {env,db}=makeEnvironment();
+ try {
+  await installOperations(env);
+  const state=newOperations(),gid='QA-CAP-CONCURRENT';
+  state.groups=[{id:gid,title:'Capped',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:3},{id:'UNLIMITED-TEST',title:'Unlimited',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:null}];
+  state.products=[{id:'cap-p',group_id:gid,name:'Kitty',sku:'KITTY',variant:'',price_twd:765,shipping_units:1,status:'available',published:true}];
+  db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(state));
+  assert.equal(remainingGroupCapacity(state,'UNLIMITED-TEST'),null);
+  assert.equal(remainingGroupCapacity(state,gid),3);
+  const checkout=(key)=>checkoutOperations({key,group_id:gid,name:'QA',items:[{product_id:'cap-p',quantity:2}],adult_confirmed:true,terms_confirmed:true},key+'@example.test',env);
+  const results=await Promise.allSettled([checkout('qa-concurrent-cap-0001'),checkout('qa-concurrent-cap-0002')]);
+  assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(results.filter(x=>x.status==='rejected').length,1);
+  assert.equal(remainingGroupCapacity((await loadOperations(env)).state,gid),1);
+ } finally {db.close();}
+});
