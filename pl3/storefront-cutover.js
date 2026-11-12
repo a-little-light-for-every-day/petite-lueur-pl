@@ -26,7 +26,7 @@
    const show=(text,kind='warn')=>{if(typeof msg==='function')msg('submitMsg',text,kind);};
    const request=async(path,body,bearer='')=>{const same=base===location.origin;const r=await fetch(base+path,{method:body===undefined?'GET':'POST',credentials:same?'same-origin':'omit',headers:{...(body===undefined?{}:{'Content-Type':'application/json',...(same?{'X-PL3-Admin-Action':'1'}:{})}),...(bearer?{Authorization:'Bearer '+bearer}:{})},body:body===undefined?undefined:JSON.stringify(body)});const d=await r.json();if(!r.ok||d.ok===false){if(r.status===401&&bearer){token='';verifiedEmail='';}throw Error(d.error||d.message||'目前無法完成，請稍後重試。');}return d;};
    const email=()=>{const e=value('customerEmail').toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e))throw Error('請確認 Email 格式');return e;};
-   el('customerEmail').addEventListener('input',()=>{token='';verifiedEmail='';requestedEmail='';el('plInlineOtp').value='';el('plInlineAuthStatus').textContent='';});
+   el('customerEmail').addEventListener('input',()=>{document.getElementById('plDirectPayment')?.remove();token='';verifiedEmail='';requestedEmail='';el('plInlineOtp').value='';el('plInlineAuthStatus').textContent='';});
    send.onclick=async()=>{if(busy)return;try{const e=email();send.disabled=true;await request('/api/auth/request-code',{email:e});requestedEmail=e;el('plInlineAuthStatus').textContent='驗證碼已寄出，請在下方填寫申請資料，輸入驗證碼後送出。';send.textContent='重新寄送驗證碼';}catch(e){show(e.message);}finally{send.disabled=false;}};
    const attemptKey=async payload=>{const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload))))).map(x=>x.toString(16).padStart(2,'0')).join('');let attempts=[];try{attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');}catch{}const found=attempts.find(x=>x.digest===digest);if(found)return found.key;const key=crypto.randomUUID();attempts.push({digest,key});try{sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.slice(-50)));}catch{}return key;};
    window.submitOrder=async()=>{
@@ -43,9 +43,27 @@
      if(!token||verifiedEmail!==e){let restored=false;if(base===location.origin){try{const session=await request('/api/auth/session');restored=session.email?.toLowerCase()===e;}catch{}}
       if(!restored){if(requestedEmail!==e||!/^\d{6}$/.test(value('plInlineOtp')))throw Error('請先寄送並填寫這個 Email 的六位數驗證碼');const verified=await request('/api/auth/verify-code',{email:e,code:value('plInlineOtp')});token=verified.token;}verifiedEmail=e;
      }
-     for(const[group_id,items]of groups){const payload={name,group_id,items,adult_confirmed:true,terms_confirmed:true,no_abandon_confirmed:true,contact,delivery_method:delivery,...(group_id==='WEVERSE-PLAVE-STARTRACE-261106'?{benefit_preference:preference}:{})};const key=await attemptKey({email:e,...payload});const r=await request('/api/operations/checkout',{key,...payload},token);completed.push(r.result.order_id);receipts.push({group_id,status:r.result.status});cart=cart.filter(line=>!(groups.get(group_id)||[]).some(x=>x.product_id===line.productId));if(typeof saveCart==='function')saveCart();try{const attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.filter(x=>x.key!==key)));}catch{}}
+     for(const[group_id,items]of groups){const payload={name,group_id,items,adult_confirmed:true,terms_confirmed:true,no_abandon_confirmed:true,contact,delivery_method:delivery,...(group_id==='WEVERSE-PLAVE-STARTRACE-261106'?{benefit_preference:preference}:{})};const key=await attemptKey({email:e,...payload});const r=await request('/api/operations/checkout',{key,...payload},token);completed.push(r.result.order_id);receipts.push({group_id,status:r.result.status,direct_payment:r.result.direct_payment===true,order_id:r.result.order_id});cart=cart.filter(line=>!(groups.get(group_id)||[]).some(x=>x.product_id===line.productId));if(typeof saveCart==='function')saveCart();try{const attempts=JSON.parse(sessionStorage.getItem('pl3-inline-attempts-v1')||'[]');sessionStorage.setItem('pl3-inline-attempts-v1',JSON.stringify(attempts.filter(x=>x.key!==key)));}catch{}}
      if(typeof renderCart==='function')renderCart();if(typeof renderProducts==='function')renderProducts();
-     checkout.classList.remove('hidden');btn.hidden=true;const rush=receipts.some(x=>x.group_id==='WEVERSE-PLAVE-STARTRACE-261106');const standby=receipts.some(x=>x.status==='waitlisted');show('訂購申請已送出！編號：'+completed.join('、')+'。'+(standby?'其中有訂單列入候補，尚未取得採購名額；請等候後續通知，現在不需付款。':rush?'一販未買到的品項將保留至官方二販（如有）；成功購得後才通知第一階段付款，運費於二補結算。兩販未得或無二販則另公告處理時間。':'結單後提供第一階段付款通知，後續運費另於二補核算。'),'ok');
+     checkout.classList.remove('hidden');btn.hidden=true;const rush=receipts.some(x=>x.group_id==='WEVERSE-PLAVE-STARTRACE-261106');const standby=receipts.some(x=>x.status==='waitlisted');const direct=receipts.some(x=>x.direct_payment);show('訂購申請已送出！編號：'+completed.join('、')+'。'+(standby?'其中有訂單列入候補，尚未取得採購名額；請等候後續通知，現在不需付款。':rush?'一販未買到的品項將保留至官方二販（如有）；成功購得後才通知第一階段付款，運費於二補結算。兩販未得或無二販則另公告處理時間。':direct?'本次含可立即付款的訂單，請前往我的訂單查看一補金額、期限及匯款資料。':'結單後提供第一階段付款通知，後續運費另於二補核算。'),'ok');
+     if(direct){
+      document.getElementById('plDirectPayment')?.remove();
+      const payment=document.createElement('section');payment.id='plDirectPayment';checkout.append(payment);
+      const paymentLink=document.createElement('a');paymentLink.href=base+'/account';paymentLink.className='legacyPrimary';paymentLink.textContent='查看一補匯款資料與付款回報 →';payment.append(paymentLink);
+      try{
+       const data=await request('/api/operations/my-orders',undefined,token);
+       for(const receipt of receipts.filter(r=>r.direct_payment)){
+        const order=data.orders.find(o=>o.id===receipt.order_id);
+        const bill=order?.invoices.find(b=>b.phase==='first'&&b.payment_options?.length);
+        if(!bill)continue;
+        const details=document.createElement('p');
+        const deadline=new Date(bill.due_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
+        const accounts=bill.payment_options.map(p=>p.method+' '+p.bank_code+' '+p.account).join(' ／ ');
+        details.textContent=order.id+'｜一補 NT$'+bill.outstanding_twd+'｜付款及回報期限 '+deadline+'（台灣時間）｜'+accounts;
+        payment.insertBefore(details,paymentLink);
+       }
+      }catch{ /* The saved order remains accessible from the secure account page. */ }
+     }
     }catch(e){if(completed.length){if(typeof renderCart==='function')renderCart();checkout.classList.remove('hidden');}show((completed.length?'已保存 '+completed.join('、')+'；其他商品尚未送出：':'')+e.message);}
     finally{busy=false;btn.disabled=false;send.disabled=false;btn.textContent='驗證並送出訂購申請 →';}
    };
