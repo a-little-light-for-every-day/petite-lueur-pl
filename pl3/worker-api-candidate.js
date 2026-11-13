@@ -17,6 +17,7 @@ import { BENEFIT_GROUP } from './benefit-checkout.js';
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import starTraceHtml from './star-trace-html.js';
 import operationsHtml from "./operations-html.js";
+import {listJapanNews,saveJapanNews} from "./japan-news-store.js";
 import operationsBundle from "./operations-bundle.js";
 import homepageHtml from "./homepage-html.js";
 import privacyHtml from "./privacy-html.js";
@@ -385,7 +386,14 @@ export default {
         return response(await executeOperation({key:'service:'+body.key,version:current.version,command:{...body,type,authenticated_email:email}},email,env,{requestIdentity:{...body,type,authenticated_email:email}}),200,origin);
       }
       if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog(await loadCatalogState(env)),200,origin);
+      if(url.pathname==="/api/operations/japan-news"&&request.method==="GET")return response({ok:true,items:await listJapanNews(env,{publicOnly:true})},200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
+      if(url.pathname==="/api/admin/japan-news"){
+        const actor=await authorizedOwner(request,env);
+        if(request.method==="GET")return response({ok:true,items:await listJapanNews(env)},200,origin);
+        if(request.method==="POST"){await requireOwnerStepUp(request,env);const body=await jsonBody(request);return response(await saveJapanNews(env,body,actor),200,origin);}
+        return response({ok:false,error:"Method not allowed"},405,origin);
+      }
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);
         // The command endpoint chooses the step-up window from its validated
