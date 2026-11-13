@@ -385,6 +385,16 @@ export default {
         const email=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))fail('申請識別碼無效');const type=url.pathname.endsWith('/service-request')?'service_request':body.type;if(!['service_request','service_customer_accept','service_customer_decline'].includes(type))fail('服務操作無效');
         return response(await executeOperation({key:'service:'+body.key,version:current.version,command:{...body,type,authenticated_email:email}},email,env,{requestIdentity:{...body,type,authenticated_email:email}}),200,origin);
       }
+      if(url.pathname==='/api/public/japan-news-image'&&request.method==='GET'){
+        const imageId=url.searchParams.get('id')||'';
+        if(!/^[0-9a-f-]{36}$/i.test(imageId))return new Response('Not found',{status:404});
+        await listJapanNews(env,{publicOnly:true});
+        const coverUrl=new URL('/api/public/japan-news-image?id='+imageId,url.origin).href;
+        const row=await env.DB.prepare("SELECT a.mime_type,a.base64_data FROM pl_ops_attachments a JOIN pl_japan_news n ON n.cover_url=? AND n.published=1 WHERE a.id=? AND a.mime_type IN ('image/png','image/jpeg') LIMIT 1").bind(coverUrl,imageId).first();
+        if(!row)return new Response('Not found',{status:404,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+        const bytes=Uint8Array.from(atob(row.base64_data),c=>c.charCodeAt(0));
+        return new Response(bytes,{headers:{'Content-Type':row.mime_type,'Cache-Control':'public, max-age=300','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'}});
+      }
       if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog(await loadCatalogState(env)),200,origin);
       if(url.pathname==="/api/operations/japan-news"&&request.method==="GET")return response({ok:true,items:await listJapanNews(env,{publicOnly:true})},200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
