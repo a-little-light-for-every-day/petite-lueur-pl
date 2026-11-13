@@ -1,0 +1,21 @@
+.account-site { background:#fcf8f5; color:#504039; }
+.account-site-header { background:#fffdfb; border-bottom:1px solid #e8dbd2; }
+.account-site-header > div {
+ max-width:1160px; margin:auto; padding:12px 24px;
+ display:flex; align-items:center; justify-content:space-between; gap:12px 24px; flex-wrap:wrap;
+}
+.account-site-header a { color:#59443d; text-decoration:none; }
+.account-site-brand { display:inline-flex; align-items:center; gap:10px; font:600 23px Georgia,serif; }
+.account-site-brand img { border-radius:50%; object-fit:cover; }
+.account-site-header nav { display:flex; flex-wrap:wrap; gap:4px; }
+.account-site-header nav a { font-size:14px; padding:8px 10px; border-radius:8px; }
+.account-site-header nav a:hover,
+.account-site-header nav a[aria-current="page"] { background:#f3e7df; }
+.account-site .login,
+.account-site .customer { --line:#e8dbd2; }
+.account-site .login { margin:clamp(32px,8vh,90px) auto; width:min(470px,calc(100% - 28px)); }
+.account-site h1 { color:#504039; }
+@media (max-width:560px) {
+ .account-site-header > div { padding:10px 14px; }
+ .account-site-header nav { width:100%; }
+}

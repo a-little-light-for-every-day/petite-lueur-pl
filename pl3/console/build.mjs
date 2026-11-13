@@ -6,7 +6,15 @@ writeFileSync('../operations-bundle.js','// Generated from console/app.jsx. Reac
 
 // PL3's own public homepage and privacy notice. Keep both on the Worker origin
 // so the previous GitHub Pages deployment can eventually be retired safely.
-const homepage=readFileSync('homepage.html','utf8').replace('__PL_OFFICIAL_LOGO__','data:image/jpeg;base64,'+readFileSync('../../assets/pl-logo.jpg').toString('base64'));
+const logo='data:image/jpeg;base64,'+readFileSync('../../assets/pl-logo.jpg').toString('base64');
+const homepage=readFileSync('homepage.html','utf8').replace('__PL_OFFICIAL_LOGO__',logo);
+const accountHeader=`<header class="account-site-header"><div>
+  <a href="/" class="account-site-brand"><img src="${logo}" width="44" height="44" alt="">Petite Lueur PL</a>
+  <nav aria-label="官網導覽"><a href="/">官網首頁</a><a href="/#shop">開團商品</a><a href="/account" aria-current="page">訂單查詢</a></nav>
+</div></header>`;
+const accountCss=readFileSync('account-site.css','utf8');
+const accountHtml=html.replace('</style>',accountCss+'</style>').replace('<body>','<body class="account-site">'+accountHeader);
+writeFileSync('../operations-account-html.js','// Generated customer account shell.\nexport default '+JSON.stringify(accountHtml)+';\n');
 writeFileSync('../homepage-html.js','// Generated PL3 public homepage.\nexport default '+JSON.stringify(homepage)+';\n');
 writeFileSync('../privacy-html.js','// Generated PL3 privacy notice.\nexport default '+JSON.stringify(readFileSync('privacy.html','utf8'))+';\n');
 writeFileSync('../admin-html.js','// Generated from admin-test.html.\nexport default '+JSON.stringify(readFileSync('../admin-test.html','utf8'))+';\n');

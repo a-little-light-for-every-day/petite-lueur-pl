@@ -17,6 +17,7 @@ import { BENEFIT_GROUP } from './benefit-checkout.js';
 import {installStarTrace,readStarTrace,commandStarTrace} from './star-trace-store.js';
 import starTraceHtml from './star-trace-html.js';
 import operationsHtml from "./operations-html.js";
+import accountHtml from "./operations-account-html.js";
 import {listJapanNews,saveJapanNews} from "./japan-news-store.js";
 import operationsBundle from "./operations-bundle.js";
 import homepageHtml from "./homepage-html.js";
@@ -366,7 +367,7 @@ export default {
         "/admin-operations":"Petite Lueur PL｜營運工作台",
       };
       const pageTitle=Object.hasOwn(pageTitles,url.pathname)?pageTitles[url.pathname]:null;
-      if(pageTitle&&request.method==="GET")return new Response(operationsHtml.replace(
+      if(pageTitle&&request.method==="GET")return new Response((url.pathname==="/account"?accountHtml:operationsHtml).replace(
         "<title>Petite Lueur PL｜營運工作台</title>",
         `<title>${pageTitle}</title><meta property="og:title" content="${pageTitle}">`
       ),{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});

@@ -136,3 +136,13 @@ test('public page previews use customer titles', async()=>{
   assert.doesNotMatch(html,/營運工作台/);
  }
 });
+
+test('account keeps the official storefront navigation around the customer app', async()=>{
+ const account=await worker.fetch(new Request('https://worker.example/account'),{DB:db});
+ const html=await account.text();
+ assert.match(html,/<header class="account-site-header">/);
+ assert.match(html,/href="\/#shop">開團商品/);
+ assert.match(html,/<div id="root"><\/div>/);
+ const admin=await worker.fetch(new Request('https://worker.example/admin-operations'),{DB:db});
+ assert.doesNotMatch(await admin.text(),/account-site-header/);
+});
