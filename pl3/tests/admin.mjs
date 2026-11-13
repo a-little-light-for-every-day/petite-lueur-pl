@@ -125,3 +125,14 @@ test('operations console and customer portal serve a real built application shel
  for(const path of ['/admin-operations','/account']){const r=await worker.fetch(new Request('https://worker.example'+path),{DB:db});assert.equal(r.status,200);const html=await r.text();assert.match(html,/operations-app\.js/);assert.match(html,/viewport/);assert.equal(r.headers.get('X-Frame-Options'),'DENY');}
  const r=await worker.fetch(new Request('https://worker.example/operations-app.js'),{DB:db});assert.equal(r.status,200);assert.match(await r.text(),/Refine|refine/);
 });
+
+test('public page previews use customer titles', async()=>{
+ for(const [path,title] of [['/account','訂單查詢'],['/shop','商品與團次'],['/services','詢價與委託']]){
+  const response=await worker.fetch(new Request('https://worker.example'+path),{DB:db});
+  assert.equal(response.status,200);
+  const html=await response.text();
+  assert.ok(html.includes('<title>Petite Lueur PL｜'+title+'</title>'));
+  assert.ok(html.includes('property="og:title" content="Petite Lueur PL｜'+title+'"'));
+  assert.doesNotMatch(html,/營運工作台/);
+ }
+});

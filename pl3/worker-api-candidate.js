@@ -359,7 +359,17 @@ export default {
       }
       if(url.pathname==='/storefront-cutover.js'&&request.method==='GET')return new Response(storefrontCutover,{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
       if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog(await loadCatalogState(env)),200,origin);
-      if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      const pageTitles={
+        "/account":"Petite Lueur PL｜訂單查詢",
+        "/shop":"Petite Lueur PL｜商品與團次",
+        "/services":"Petite Lueur PL｜詢價與委託",
+        "/admin-operations":"Petite Lueur PL｜營運工作台",
+      };
+      const pageTitle=Object.hasOwn(pageTitles,url.pathname)?pageTitles[url.pathname]:null;
+      if(pageTitle&&request.method==="GET")return new Response(operationsHtml.replace(
+        "<title>Petite Lueur PL｜營運工作台</title>",
+        `<title>${pageTitle}</title><meta property="og:title" content="${pageTitle}">`
+      ),{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
       // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
       if(url.pathname==="/admin-qa-payment-bill"&&request.method==="GET"){
         return Response.redirect(new URL("/admin-qa#qa-payment-bill",request.url),302);
