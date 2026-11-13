@@ -26,3 +26,34 @@ export function groupSettlementLabel(group) {
  if(group?.id === BENEFIT_GROUP && group.sale_phase === 'finished') return '二販已核實・待結案';
  return '尚未結案';
 }
+
+export function groupFilterOptions(groups, orders, now = Date.now()) {
+ const unfinished = new Set(orders.filter(order =>
+  !['completed','cancelled','excluded'].includes(order.status)
+ ).map(order => order.group_id));
+ const categories = {
+  open: {label:'開團中', groups:[]},
+  secondSale: {label:'已結單・二販處理中', groups:[]},
+  intakeClosed: {label:'已結單・營運未完成', groups:[]},
+  finished: {label:'已結束', groups:[]},
+  cancelled: {label:'流團', groups:[]},
+  draft: {label:'草稿', groups:[]},
+  missingDeadline: {label:'截止待設定', groups:[]},
+  unknown: {label:'狀態待確認', groups:[]},
+ };
+ for (const group of groups) {
+  let category = group.status;
+  if (group.status === 'closed') {
+   category = unfinished.has(group.id) ? 'intakeClosed' : 'finished';
+  } else if (group.status === 'open') {
+   if (!Number.isFinite(Date.parse(group.deadline || ''))) category = 'missingDeadline';
+   else if (groupIntakeExpired(group, now)) {
+    category = group.id === BENEFIT_GROUP && group.sale_phase === 'awaiting_second'
+     ? 'secondSale' : 'intakeClosed';
+   }
+  }
+  const bucket = Object.hasOwn(categories, category) ? categories[category] : categories.unknown;
+  bucket.groups.push(group);
+ }
+ return Object.values(categories).filter(category => category.groups.length);
+}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BENEFIT_GROUP} from '../benefit-checkout.js';
-import {groupIntakeLabel,groupSettlementLabel,groupIntakeExpired} from '../console/group-status.js';
+import {groupFilterOptions,groupIntakeLabel,groupSettlementLabel,groupIntakeExpired} from '../console/group-status.js';
 import {applyOperation,newOperations} from '../operations-domain.js';
 
 const deadline='2026-11-06T02:00:00.000Z'; // 11/06 10:00 Taiwan
@@ -40,4 +40,33 @@ test('STAR TRACE cannot auto-finalize or bypass finalization flow via group edit
  assert.equal(finished.groups[0].status,'open');
  assert.equal(finished.invoices.length,0);
  assert.equal(finished.notices.length,0);
+});
+
+test('shared filter groups each record by intake and remaining operations',()=>{
+ const groups=[
+  {id:'open',status:'open',deadline:new Date(after+1).toISOString()},
+  {id:'expired',status:'open',deadline:new Date(after).toISOString()},
+  {id:BENEFIT_GROUP,status:'open',deadline,sale_phase:'awaiting_second'},
+  {id:'closed-active',status:'closed'},
+  {id:'closed-complete',status:'closed'},
+  {id:'cancelled',status:'cancelled'},
+  {id:'draft',status:'draft'},
+  {id:'missing',status:'open'},
+  {id:'unknown',status:'unknown'},
+ ];
+ const orders=[
+  {group_id:'closed-active',status:'active'},
+  {group_id:'closed-complete',status:'completed'},
+  {group_id:'closed-complete',status:'cancelled'},
+ ];
+ assert.deepEqual(groupFilterOptions(groups,orders,after).map(({label,groups})=>[label,groups.map(g=>g.id)]),[
+  ['開團中',['open']],
+  ['已結單・二販處理中',[BENEFIT_GROUP]],
+  ['已結單・營運未完成',['expired','closed-active']],
+  ['已結束',['closed-complete']],
+  ['流團',['cancelled']],
+  ['草稿',['draft']],
+  ['截止待設定',['missing']],
+  ['狀態待確認',['unknown']],
+ ]);
 });
