@@ -7,7 +7,7 @@ import{operationsMirrorStatus,drainOperationsMirror}from './operations-mirror.js
 import{exportOperationsBackup,restoreOperationsBackup,verifyOperationsBackup}from './operations-backup.js';
 import{customerServiceView}from './operations-services.js';
 import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} from './catalog-source.js';
-import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,saveOperationsAttachment } from "./operations-store.js";
+import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,loadCatalogState,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
 import { balance,applyOperation,operatingStatus } from "./operations-domain.js";
 import { paymentInstructionsFor } from './payment-instructions.js';
@@ -357,7 +357,7 @@ export default {
         return new Response(storefrontPreview,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'}});
       }
       if(url.pathname==='/storefront-cutover.js'&&request.method==='GET')return new Response(storefrontCutover,{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
-      if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog((await loadOperations(env)).state),200,origin);
+      if(url.pathname==='/api/operations/legacy-catalog'&&request.method==='GET')return response(legacyOperationsCatalog(await loadCatalogState(env)),200,origin);
       if(["/admin-operations","/account","/shop","/services"].includes(url.pathname)&&request.method==="GET")return new Response(operationsHtml,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
       // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
       if(url.pathname==="/admin-qa-payment-bill"&&request.method==="GET"){
@@ -384,7 +384,7 @@ export default {
         const email=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))fail('申請識別碼無效');const type=url.pathname.endsWith('/service-request')?'service_request':body.type;if(!['service_request','service_customer_accept','service_customer_decline'].includes(type))fail('服務操作無效');
         return response(await executeOperation({key:'service:'+body.key,version:current.version,command:{...body,type,authenticated_email:email}},email,env,{requestIdentity:{...body,type,authenticated_email:email}}),200,origin);
       }
-      if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog((await loadOperations(env)).state),200,origin);
+      if(url.pathname==="/api/operations/catalog"&&request.method==="GET")return response(publicOperationsCatalog(await loadCatalogState(env)),200,origin);
       if(url.pathname==="/api/operations/checkout"&&request.method==="POST")return response(await checkoutOperations(await jsonBody(request),await authorizedEmail(request,env),env),200,origin);
       if(url.pathname.startsWith("/api/admin/ops")){
         const actor=await authorizedOwner(request,env);

@@ -1,13 +1,14 @@
 import{normalizeBenefitPreference}from './benefit-checkout.js';
 import{remainingGroupCapacity,groupAcceptingApplications,remainingProductCapacity,publicProductQuantityLimit}from './group-capacity.js';
 import{inferProductCategory}from './product-category.js';
+const taiwanCutoffFormatter=new Intl.DateTimeFormat('en-US',{
+ timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',
+ hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+});
 export function formatTaiwanCutoff(raw){
  const timestamp=Date.parse(String(raw||''));
  if(!Number.isFinite(timestamp))return '待確認';
- const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
-  timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',
-  hour:'2-digit',minute:'2-digit',hourCycle:'h23'
- }).formatToParts(timestamp).map(({type,value})=>[type,value]));
+ const parts=Object.fromEntries(taiwanCutoffFormatter.formatToParts(timestamp).map(({type,value})=>[type,value]));
  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}（台灣時間）`;
 }
 // The fragment contains catalog IDs, quantities and optional card ranks only. Never names, email or contact details.
@@ -25,6 +26,7 @@ export function serviceFromFragment(fragment){
 }
 export function legacyOperationsCatalog(s){
  const now=Date.now(),groups=s.groups.filter(g=>groupAcceptingApplications(g,now)&&remainingGroupCapacity(s,g.id)!==0);
+ const deadlineLabels=new Map(groups.map(g=>[g.id,formatTaiwanCutoff(g.deadline)]));
  const products=s.products.filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&remainingProductCapacity(s,p)!==0&&groups.some(g=>g.id===p.group_id)).map(p=>{const g=groups.find(g=>g.id===p.group_id);const star=g.id==='WEVERSE-PLAVE-STARTRACE-261106',sid=String(p.source_url||'').match(/sales\/(\d+)/)?.[1],types={'71375':'小卡','71376':'壓克力立牌','71377':'徽章','71378':'鑰匙圈','71379':'貼紙','71380':'耳機','71381':'收納包吊飾','71382':'按鍵吊飾','71383':'掛繩','71385':'黏毛滾輪','71386':'帽T'};return{id:p.id,code:p.sku||p.id,title:star&&['71376','71381','71382','71383','71385','71386'].includes(sid)?p.name+'｜'+p.variant:p.name,price:p.price_twd,shippingShares:p.shipping_units_confirmed===false?null:p.shipping_units,shippingPending:p.shipping_units_confirmed===false,manualReviewRequired:p.shipping_units_confirmed===false&&p.manual_review_required===true&&!g.direct_payment,directPayment:g.direct_payment===true,variantText:'',note:p.shipping_units_confirmed===false?((p.variant?p.variant+'｜':'')+(g.direct_payment?'國際運費於二補實算；申請成立後可匯一補商品款':'國際運費待實算；送出後人工審核，審核前不付款')):p.variant||'',published:true,displayMode:'formal',image:p.image_url||'',images:p.image_url?[p.image_url]:[],imagePublicApproved:!!p.image_official,campaignCode:g.id,campaignName:g.title,preorderDeadline:g.deadline,sourceUrl:p.source_url||'',maxPurchase:publicProductQuantityLimit(s,p)||null,soldOut:false,status:p.shipping_units_confirmed===false&&!g.direct_payment?'僅開放人工審核申請':'預購中',statuses:[p.shipping_units_confirmed===false&&!g.direct_payment?'僅開放人工審核申請':'預購中'],kind:star?'韓國代購':'日本代購',productType:p.product_type||(star?types[sid]||'韓國周邊':inferProductCategory(p)),...(star?{source:'Weverse',officialPurchaseLimit:p.quantity_limit||0,officialPurchaseLimitScope:['71375','71377','71378','71379','71380'].includes(sid)?'每商品／每筆官方訂單':'每規格／每筆官方訂單',purchaseLimitNote:'合併採購仍受官方每筆訂單限購；送出申請不保證取得。',officialPurchaseLimitOriginal:['71375','71377','71378','71379','71380'].includes(sid)?'各商品限購數量為'+p.quantity_limit+'個。':'各選項商品限購數量為'+p.quantity_limit+'個。',bonusText:'滿額試算與成員志願請於購物袋填寫，在本頁完成 Email 驗證後直接送出申請。特典活動至台灣時間11/26 22:59。每位客人活動認列商品金額每滿KRW50,000取得1個資格；合併團按官方實際到卡，抽順位依成員志願配卡，不保證第一志願或必定配得。零頭多出的卡保留待分配。帽T額外幻彩卡及商品內附小卡隨商品歸購買者，與滿額卡池分開。',expectedShip:'官方自2026/11/13起陸續出貨；非台灣到貨日',preorderDeadlineLabel:new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(g.deadline)).replaceAll('-','/')+'（台灣，PL 收單截止；官方售罄提前截止）'}:{})};});
- return{ok:true,products:products.map(p=>p.preorderDeadline&&!p.preorderDeadlineLabel?{...p,preorderDeadlineLabel:formatTaiwanCutoff(p.preorderDeadline)}:p),campaigns:groups.filter(g=>products.some(p=>p.campaignCode===g.id)).map(g=>({id:g.id,code:g.id,title:g.title,name:g.title,status:'收單中',deadline:g.deadline})),orderMaxTwd:22000,siteSettings:{privateBankDetails:true},sourceMode:'PL3-operating-catalog'};
+ return{ok:true,products:products.map(p=>p.preorderDeadline&&!p.preorderDeadlineLabel?{...p,preorderDeadlineLabel:deadlineLabels.get(p.campaignCode)}:p),campaigns:groups.filter(g=>products.some(p=>p.campaignCode===g.id)).map(g=>({id:g.id,code:g.id,title:g.title,name:g.title,status:'收單中',deadline:g.deadline})),orderMaxTwd:22000,siteSettings:{privateBankDetails:true},sourceMode:'PL3-operating-catalog'};
 }

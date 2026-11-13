@@ -21,6 +21,17 @@ export async function loadOperations(env){
  if(!Array.isArray(meta.groups)){for(const kind of entityKinds)state[kind]=[];for(const r of entities.results||[])if(entityKinds.includes(r.kind))state[r.kind].push(JSON.parse(r.document_json));}
  return {version:row.version,state,legacy_document:Array.isArray(meta.groups)};
 }
+export async function loadCatalogState(env){
+ const {results}=await env.DB.prepare(`SELECT 'state' AS kind,id,document_json FROM pl_ops_state WHERE id='main'
+  UNION ALL SELECT kind,id,document_json FROM pl_ops_entities WHERE kind IN ('groups','products','orders') ORDER BY kind,id`).all();
+ const row=results.find(row=>row.kind==='state');
+ if(!row)throw opsError('營運資料尚未初始化',503);
+ const meta=JSON.parse(row.document_json);
+ if(Array.isArray(meta.groups))return {groups:meta.groups,products:meta.products||[],orders:meta.orders||[]};
+ const state={groups:[],products:[],orders:[]};
+ for(const row of results)if(row.kind!=='state')state[row.kind].push(JSON.parse(row.document_json));
+ return state;
+}
 export async function operationsView(env){
  const {version,state}=await loadOperations(env);const mail=await env.DB.prepare('SELECT id,notice_id,status,gmail_message_id,gmail_thread_id,error_code,claimed_at,sent_at,updated_at FROM pl_ops_mail ORDER BY updated_at DESC LIMIT 500').all();
  for(const m of mail.results||[]){const n=state.notices.find(x=>x.id===m.notice_id);if(n&&n.status!=='void'){
