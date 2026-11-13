@@ -184,3 +184,23 @@ test('direct payment atomically reserves stock and opens an authenticated goods-
   assert.equal(reported.state.receipts.length,0);
  } finally {db.close();}
 });
+
+test('per-product capacity is reserved across concurrent orders and released on cancellation', async () => {
+ const {env,db}=makeEnvironment();
+ try {
+  await installOperations(env);
+  const state=newOperations(),gid='QA-PRIZE-CAP';
+  state.groups=[{id:gid,title:'QA',status:'open',deadline:'2099-01-01T00:00:00Z',capacity_limit:10}];
+  state.products=[{id:'qa-prize',group_id:gid,name:'QA prize',sku:'PRIZE',price_twd:210,intake_limit:2,status:'available',published:true}];
+  db.prepare("UPDATE pl_ops_state SET document_json=? WHERE id='main'").run(JSON.stringify(state));
+  const body={group_id:gid,name:'QA',items:[{product_id:'qa-prize',quantity:2}],adult_confirmed:true,terms_confirmed:true};
+  const attempts=await Promise.allSettled(['first','second'].map(key=>checkoutOperations({...body,key:'qa-prize-checkout-'+key},'qa@example.test',env)));
+  assert.equal(attempts.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(attempts.find(x=>x.status==='rejected').reason.status,409);
+  const current=await loadOperations(env);
+  assert.equal(publicOperationsCatalog(current.state).products.length,0);
+  await executeOperation({key:'qa-prize-cancel-0001',version:current.version,command:{type:'order_cancel',order_id:current.state.orders[0].id,confirmed:true,reason:'QA'}},'owner:qa',env);
+  assert.equal(publicOperationsCatalog((await loadOperations(env)).state).products[0].quantity_limit,2);
+  await checkoutOperations({...body,key:'qa-prize-checkout-after-cancel'},'qa@example.test',env);
+ } finally {db.close();}
+});

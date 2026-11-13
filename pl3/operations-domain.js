@@ -4,7 +4,7 @@ import{applyBenefit}from './operations-benefits.js';
 import{completeLegacyOperations}from './legacy-operations-reconcile.js';
 import{settleLegacyPayment}from './legacy-payment-settlement.js';
 import{applyService}from './operations-services.js';
-import{groupCapacityLimit,occupiedGroupQuantity}from './group-capacity.js';
+import{groupCapacityLimit,occupiedGroupQuantity,occupiedProductQuantity,productCapacityExceeded}from './group-capacity.js';
 import{PRODUCT_CATEGORIES,inferProductCategory}from './product-category.js';
 // PL operating model. Pure commands, explicit evidence, no external calls.
 const failure=(m,status=400)=>Object.assign(new Error(m),{status});
@@ -216,17 +216,21 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(validURL(c.source_url),'請填官方HTTPS來源');if(c.image_url)must(validURL(c.image_url),'圖片必須是HTTPS網址');
   if(c.published)must(c.confirmed===true&&(!c.image_url||c.image_official===true),'上架前須確認商品內容；有圖時須為官方原圖');
   const prior=(s.products||[]).find(p=>p.id===c.id);const pid=prior?.id||id;
+  const intakeLimit=c.intake_limit===undefined?prior?.intake_limit??null:c.intake_limit;
+  must(intakeLimit===null||(Number.isSafeInteger(intakeLimit)&&intakeLimit>0),'逐款承接上限須為正整數，或留空表示不限量');
+  if(intakeLimit!==null)must(occupiedProductQuantity(s,{group_id:c.group_id,sku:text(c.sku),variant:text(c.variant)})<=intakeLimit,'逐款承接上限不得低於已申請數量',409);
+  if(prior?.intake_limit&&occupiedProductQuantity(s,prior)>0)must(prior.group_id===c.group_id&&prior.sku===text(c.sku)&&prior.variant===text(c.variant),'限量商品已有申請，不可變更團次、貨號或規格',409);
   const productType=c.product_type??prior?.product_type??inferProductCategory({name:c.name});
   must(PRODUCT_CATEGORIES.includes(productType),'商品類型無效，請從商品分類選單選擇');
   const shippingConfirmed=c.shipping_units_confirmed!==false;
   if(shippingConfirmed)positive(c.shipping_units);
   if(c.published&&!shippingConfirmed)must(c.manual_review_required===true||s.groups.find(g=>g.id===c.group_id)?.direct_payment===true,'國際運費待實算商品必須啟用人工審核申請，不能作為一般訂單');
   must(!(s.products||[]).some(p=>p.id!==pid&&p.group_id===c.group_id&&p.sku===text(c.sku)&&p.variant===text(c.variant)),'同團貨號與規格重複');
-  const p={id:pid,group_id:c.group_id,name:text(c.name),product_type:productType,sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:shippingConfirmed?c.shipping_units:null,shipping_units_confirmed:shippingConfirmed,manual_review_required:!shippingConfirmed&&c.manual_review_required===true,quantity_limit:c.quantity_limit||null,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
+  const p={id:pid,group_id:c.group_id,name:text(c.name),product_type:productType,sku:text(c.sku),sku_confirmed:c.sku_confirmed===true||(prior?.sku===text(c.sku)&&prior.sku_confirmed===true),variant:text(c.variant),price_twd:c.price_twd,shipping_units:shippingConfirmed?c.shipping_units:null,shipping_units_confirmed:shippingConfirmed,manual_review_required:!shippingConfirmed&&c.manual_review_required===true,quantity_limit:c.quantity_limit||null,intake_limit:intakeLimit,source_url:text(c.source_url,2000),image_url:text(c.image_url,2000),image_official:c.image_official===true,published:c.published===true,setting_evidence:text(c.setting_evidence||prior?.setting_evidence,5000),status:c.status==='sold_out'?'sold_out':'available',updated_at:now};
   s.products=s.products||[];if(prior)Object.assign(prior,p);else s.products.push(p);result={product_id:pid};break;
  }
  case 'order_group':{
-  const o=order(s,c.order_id);must(c.confirmed&&text(c.evidence),'請確認團次歸屬及依據');must(s.groups.some(g=>g.id===c.group_id),'找不到團次');if(o.group_id!==c.group_id){const cap=groupCapacityLimit(s,c.group_id);must(cap===null||occupiedGroupQuantity(s,c.group_id)+(o.items||[]).reduce((n,x)=>n+x.quantity,0)<=cap,'目標團次剩餘承接名額不足',409);}o.group_id=c.group_id;o.group_evidence=text(c.evidence,2000);result={order_id:o.id};break;
+  const o=order(s,c.order_id);must(c.confirmed&&text(c.evidence),'請確認團次歸屬及依據');must(s.groups.some(g=>g.id===c.group_id),'找不到團次');if(o.group_id!==c.group_id){const cap=groupCapacityLimit(s,c.group_id);must(cap===null||occupiedGroupQuantity(s,c.group_id)+(o.items||[]).reduce((n,x)=>n+x.quantity,0)<=cap,'目標團次剩餘承接名額不足',409);must(!productCapacityExceeded(s,c.group_id,o.items),'商品剩餘認領名額不足',409);}o.group_id=c.group_id;o.group_evidence=text(c.evidence,2000);result={order_id:o.id};break;
  }
  case 'group_save':{
   const g=s.groups.find(x=>x.id===c.id);must(text(c.title),'請輸入團次名稱');if(c.auto_close)must(c.deadline&&Number.isFinite(Date.parse(c.deadline))&&c.payment_due_at&&Date.parse(c.payment_due_at)>Date.parse(c.deadline),'自動結單須設定有效截止與付款期限');
@@ -257,6 +261,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   const items=c.items.map((l,i)=>({id:prior?.items?.[i]?.id||id+':'+i,name:text(l.name),sku:text(l.sku),variant:text(l.variant),quantity:positive(l.quantity),unit_price_twd:money(l.unit_price_twd),purchased:0,overseas:0,transit:0,taiwan:0,shipped:0,delivered:0,shipping_units:l.shipping_units_confirmed===false?null:positive(l.shipping_units||1),shipping_units_confirmed:l.shipping_units_confirmed!==false,fulfillment_kind:['service','fee','forwarding'].includes(l.fulfillment_kind)?l.fulfillment_kind:'physical',hold:l.hold||null}));must(items.every(x=>x.name),'商品名稱不可空白');
   const cap=groupCapacityLimit(s,c.group_id);
   must(cap===null||occupiedGroupQuantity(s,c.group_id,{excludeOrderId:prior?.id})+items.reduce((n,l)=>n+l.quantity,0)<=cap,'本團剩餘承接名額不足',409);
+  must(!productCapacityExceeded(s,c.group_id,items,prior?.id),'商品剩餘認領名額不足',409);
   const directPayment=!prior&&c.customer_checkout===true&&group.direct_payment===true&&c.first_channel==='transfer';
   if(directPayment){
    must(Date.parse(group.deadline)>Date.parse(now)&&Date.parse(group.payment_due_at)>Date.parse(now),'本團已截止付款',409);
@@ -295,6 +300,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   must(o.items.filter(l=>l.purchased>0).every(l=>lines.some(x=>x.id===l.id)),'不可移除已採購品項');must(lines.reduce((n,l)=>n+l.quantity*l.unit_price_twd,0)===o.goods_twd,'明細總額必須等於原商品款，不能直接改動舊帳');
   const cap=groupCapacityLimit(s,o.group_id);
   must(cap===null||occupiedGroupQuantity(s,o.group_id,{excludeOrderId:o.id})+lines.reduce((n,l)=>n+l.quantity,0)<=cap,'本團剩餘承接名額不足',409);
+  must(!productCapacityExceeded(s,o.group_id,lines,o.id),'商品剩餘認領名額不足',409);
   if(o.review&&reviewItemSignature(o.items)!==reviewItemSignature(lines)&&lines.some(l=>l.shipping_units_confirmed===false)){o.review=null;o.status='review_pending';}
   o.items=lines;o.name=text(c.name);o.email=c.email.trim().toLowerCase();changed.push(o.id);break;
  }

@@ -29,3 +29,30 @@ export function remainingGroupCapacity(state, groupId) {
  if(limit===null)return null;
  return Math.max(0,limit-occupiedGroupQuantity(state,groupId));
 }
+
+function productQuantity(items, product) {
+ return (items||[]).reduce((total,item)=>total+
+  (item.sku===product.sku&&(item.variant||'')===(product.variant||'')?item.quantity:0),0);
+}
+
+export function occupiedProductQuantity(state, product, excludeOrderId) {
+ return (state.orders||[]).filter(order=>order.group_id===product.group_id&&
+  order.id!==excludeOrderId&&!['cancelled','excluded'].includes(order.status))
+  .reduce((total,order)=>total+productQuantity(order.items,product),0);
+}
+
+export function remainingProductCapacity(state, product, excludeOrderId) {
+ if(!Number.isSafeInteger(product.intake_limit))return null;
+ return Math.max(0,product.intake_limit-occupiedProductQuantity(state,product,excludeOrderId));
+}
+
+export function productCapacityExceeded(state, groupId, items, excludeOrderId) {
+ return (state.products||[]).some(product=>product.group_id===groupId&&
+  Number.isSafeInteger(product.intake_limit)&&
+  productQuantity(items,product)>remainingProductCapacity(state,product,excludeOrderId));
+}
+
+export function publicProductQuantityLimit(state, product) {
+ const remaining=remainingProductCapacity(state,product);
+ return remaining===null?product.quantity_limit:Math.min(product.quantity_limit||99,remaining);
+}

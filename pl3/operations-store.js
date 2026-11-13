@@ -2,7 +2,7 @@ import {reportMailFailure} from "./mail-failure-alert.js";
 import {operationsMailMessageId} from './operations-mail.js';
 import{BENEFIT_GROUP,normalizeBenefitPreference,benefitEstimate}from './benefit-checkout.js';
 import {starTraceAdmission} from './star-trace-admission.js';
-import {remainingGroupCapacity,groupAcceptingApplications} from './group-capacity.js';
+import {remainingGroupCapacity,groupAcceptingApplications,remainingProductCapacity,publicProductQuantityLimit} from './group-capacity.js';
 import{mirrorSchema,operationsMirrorEnabled}from './operations-mirror.js';
 import {newOperations,applyOperation,operationalTasks,noticeContent,noticeDependency} from './operations-domain.js';
 const schema=`CREATE TABLE IF NOT EXISTS pl_ops_state(id TEXT PRIMARY KEY CHECK(id='main'),version INTEGER NOT NULL DEFAULT 0,document_json TEXT NOT NULL CHECK(json_valid(document_json)),last_command_id TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -129,8 +129,8 @@ export async function saveOperationsAttachment(body,actor,env){
 
 export function publicOperationsCatalog(state){
  const now=Date.now();const groups=state.groups.filter(g=>groupAcceptingApplications(g,now));
- const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&(p.shipping_units_confirmed!==false||p.manual_review_required===true||groups.some(g=>g.id===p.group_id&&g.direct_payment===true))&&groups.some(g=>g.id===p.group_id)&&remainingGroupCapacity(state,p.group_id)!==0);
- return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline,direct_payment})=>({id,title,deadline,...(direct_payment?{direct_payment:true}:{})})),products:products.map(({id,group_id,name,product_type,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_units_confirmed,manual_review_required})=>({id,group_id,name,product_type,sku,variant,price_twd,quantity_limit,image_url,source_url,shipping_pending:shipping_units_confirmed===false,manual_review_required:shipping_units_confirmed===false&&manual_review_required===true&&!groups.some(g=>g.id===group_id&&g.direct_payment===true)}))};
+ const products=(state.products||[]).filter(p=>p.published&&(!p.image_url||p.image_official)&&p.status==='available'&&(p.shipping_units_confirmed!==false||p.manual_review_required===true||groups.some(g=>g.id===p.group_id&&g.direct_payment===true))&&groups.some(g=>g.id===p.group_id)&&remainingGroupCapacity(state,p.group_id)!==0&&remainingProductCapacity(state,p)!==0);
+ return {ok:true,groups:groups.filter(g=>products.some(p=>p.group_id===g.id)).map(({id,title,deadline,direct_payment})=>({id,title,deadline,...(direct_payment?{direct_payment:true}:{})})),products:products.map(product=>{const {id,group_id,name,product_type,sku,variant,price_twd,image_url,source_url,shipping_units_confirmed,manual_review_required}=product;return {id,group_id,name,product_type,sku,variant,price_twd,quantity_limit:publicProductQuantityLimit(state,product),image_url,source_url,shipping_pending:shipping_units_confirmed===false,manual_review_required:shipping_units_confirmed===false&&manual_review_required===true&&!groups.some(g=>g.id===group_id&&g.direct_payment===true)};})};
 }
 export async function checkoutOperations(body,email,env){
  if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))throw opsError('訂單識別碼無效');
