@@ -30,9 +30,12 @@ export function remainingGroupCapacity(state, groupId) {
  return Math.max(0,limit-occupiedGroupQuantity(state,groupId));
 }
 
+// S-1 is one prize entitlement. The selected artwork does not create a new stock unit.
+const isSharedSeenaPrize=product=>product.group_id==='KIMISHINU-SHEENABD-261113-CLAIM'&&product.sku==='KIMISHINU-SHEENABD-S1-261113';
+
 function productQuantity(items, product) {
  return (items||[]).reduce((total,item)=>total+
-  (item.sku===product.sku&&(item.variant||'')===(product.variant||'')?item.quantity:0),0);
+  (item.sku===product.sku&&(isSharedSeenaPrize(product)||(item.variant||'')===(product.variant||''))?item.quantity:0),0);
 }
 
 export function occupiedProductQuantity(state, product, excludeOrderId) {
