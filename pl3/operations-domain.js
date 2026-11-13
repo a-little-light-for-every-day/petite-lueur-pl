@@ -1,3 +1,4 @@
+import {noticePlainText} from './notice-format.js';
 import{normalizeBenefitPreference,BENEFIT_GROUP}from './benefit-checkout.js';
 import{starTraceAdmission}from './star-trace-admission.js';
 import{applyBenefit}from './operations-benefits.js';
@@ -89,7 +90,7 @@ export function makeNotice(s,ids,kind,id,now){
  const costLabels={japan:'海外境內運費',international:'國際運費',packaging:'包材',tax:'稅費',domestic:'台灣配送費'};
  const breakdown=bills[0].phase==='second'?bills.map(b=>b.order_id+'\n'+(b.costs||[]).map(x=>'・'+costLabels[x.kind]+'：NT$'+x.amount_twd).join('\n')+(b.carry_twd?'\n・一補轉入尾款：NT$'+b.carry_twd:'')).join('\n\n'):'';
  const n={id,kind,to:orders[0].email,subject:`【Petite Lueur PL】${phase}付款通知｜${orders.length===1?orders[0].id:'合併付款'}`,body:`您好：\n\n${phase}付款資訊如下。\n\n${list}\n\n${breakdown?breakdown+'\n\n':''}本次應付：NT$${total.toLocaleString('en-US')}\n${deadlines.length?'付款期限：'+deadlines.join('、')+'\n':''}\n${phase==='第一階段'?'本次為已確認商品款，後續運費及相關分攤費用於二補另行結算。':'本次為已核准的運費及相關分攤費用；帳款明細以查單頁為準。'}\n主要付款方式為台新銀行轉帳，另提供中國信託銀行轉帳、中國信託無卡存款及台灣 Pay。請至下方查單頁驗證訂購 Email，選擇台新銀行匯款、中國信託銀行轉帳或中國信託無卡存款後，即可查看當次付款帳號；台灣 Pay 請洽官方確認收款資訊。付款完成後，請在同頁提交付款回報，填寫金額、付款日期時間、方式及適用時的轉出帳號末五碼。回報不等於入帳完成，須待主購核實銀行款項後才標示已收款。\n\n訂單查詢與付款回報：https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account\n\nPetite Lueur PL`,attachments:[],order_ids:orders.map(x=>x.id),invoice_ids:ids,status:'draft',version:1,created_at:now};
- n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
+ n.body=noticePlainText(n.body);n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 // A bank-confirmed, fully allocated invoice creates a REVIEW DRAFT only.
 // The immutable invoice identity is the deduplication key, including voided drafts;
@@ -104,7 +105,7 @@ function makePaidConfirmationDraft(s,b,id,now){
   subject:'【Petite Lueur PL】第一階段款項已確認入帳｜'+o.id,
   body:`您好：\n\n已確認收到您的第一階段商品款，款項核對完成。\n\n訂單編號：${o.id}\n訂購商品：\n${o.items.map(l=>'・'+l.name+(l.variant?'｜'+l.variant:'')+' ×'+l.quantity).join('\n')}\n第一階段已收款：NT$${b.amount_twd.toLocaleString('en-US')}\n第一階段待收款：NT$0\n\n後續海外及國際運費、包材與其他實際分攤費用，會於第二階段另行通知。訂單與付款紀錄可至 https://a-little-light-for-every-day.petitelueur-pl.workers.dev/account 查詢。\n\nPetite Lueur PL`,
   attachments:[],order_ids:[o.id],invoice_ids:[b.id],status:'draft',version:1,created_at:now};
- n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
+ n.body=noticePlainText(n.body);n.dependency=noticeDependency(s,n);s.notices.push(n);return n;
 }
 function allocate(s,r,entries){
  must(Array.isArray(entries)&&entries.length>0,'請指定款項分配');
@@ -435,7 +436,8 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'notice_edit':{
   const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');must(['draft','failed'].includes(n.status),'通知已核准或寄出，不能修改',409);must(text(c.subject,200)&&text(c.body,10000),'主旨／內文不可空白');must(!/[\r\n]/.test(c.subject),'主旨不可換行');must(!/實刷|實際利潤|內部成本|女士|小姐|先生/.test(c.body),'對客內容包含內部成本或不適當稱謂');
-  n.subject=text(c.subject,200);n.body=text(c.body,10000);if(c.attachments)n.attachments=c.attachments;n.version++;n.dependency=noticeDependency(s,n);break;
+  const subject=noticePlainText(text(c.subject,200)),body=noticePlainText(text(c.body,10000));must(subject&&body,'主旨／內文不可空白');
+  n.subject=subject;n.body=body;if(c.attachments)n.attachments=c.attachments;n.version++;n.dependency=noticeDependency(s,n);break;
  }
  case 'notice_approve':{
   const n=s.notices.find(x=>x.id===c.notice_id);must(n,'找不到通知');must(n.status==='draft'&&n.version===c.version,'通知版本已變動，請重新審核',409);must(c.confirmed===true&&c.content===noticeContent(n),'請確認目前完整收件對象與內文',409);must(n.dependency===noticeDependency(s,n),'帳款／訂單已更新，請重新產生通知',409);must(email(n.to)&&!/[\r\n]/.test(n.subject),'寄送資訊無效');n.status='queued';n.approved_at=now;result={notice_id:n.id,queue:true};break;
@@ -617,7 +619,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l,'找不到品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物出貨');positive(x.quantity);must(x.quantity<=l.taiwan-l.shipped,'超過台灣倉可寄數量');l.shipped+=x.quantity;}
   must(!s.shipments.some(x=>x.carrier===text(c.carrier)&&x.tracking===text(c.tracking)),'物流單號已登錄',409);
   const shipment={id,carrier:text(c.carrier),tracking:text(c.tracking),recipient:text(c.recipient),phone:text(c.phone),destination:text(c.destination,1000),items:c.items,cod_twd:cod,cod_claims,created_at:now};s.shipments.push(shipment);
-  for(const oid of ids){const o=order(s,oid);if(!email(o.email))continue;const n={id:id+':'+oid,kind:'shipping',to:o.email,subject:'【Petite Lueur PL】出貨通知｜'+oid,body:`您好：\n\n訂單 ${oid} 已完成本次寄件登錄。\n配送方式：${shipment.carrier}\n物流單號：${shipment.tracking}\n${cod?'貨到付款金額請依寄件單與查單資訊核對。\n':''}\nPetite Lueur PL`,attachments:[],order_ids:[oid],invoice_ids:[],status:'draft',version:1,created_at:now};n.dependency=noticeDependency(s,n);s.notices.push(n);}result={shipment_id:id};break;
+  for(const oid of ids){const o=order(s,oid);if(!email(o.email))continue;const n={id:id+':'+oid,kind:'shipping',to:o.email,subject:'【Petite Lueur PL】出貨通知｜'+oid,body:`您好：\n\n訂單 ${oid} 已完成本次寄件登錄。\n配送方式：${shipment.carrier}\n物流單號：${shipment.tracking}\n${cod?'貨到付款金額請依寄件單與查單資訊核對。\n':''}\nPetite Lueur PL`,attachments:[],order_ids:[oid],invoice_ids:[],status:'draft',version:1,created_at:now};n.body=noticePlainText(n.body);n.dependency=noticeDependency(s,n);s.notices.push(n);}result={shipment_id:id};break;
  }
  case 'order_cancel':{const o=order(s,c.order_id);must(open(o)||['waitlisted','review_pending'].includes(o.status),'已完成或取消的訂單不可直接取消');must(c.confirmed===true&&text(c.reason),'請確認取消原因');must(o.items.every(l=>!l.purchased&&!l.overseas&&!l.transit&&!l.taiwan&&!l.shipped),'已有實購或到倉品項，請先處理官方取消／退款或售後');o.status='cancelled';for(const b of s.invoices.filter(x=>x.order_id===o.id)){b.status='void';for(const a of s.allocations.filter(x=>x.invoice_id===b.id&&!x.reversed_at))a.reversed_at=now;}changed.push(o.id);break;}
  case 'refund_record':{const r=s.receipts.find(x=>x.id===c.receipt_id);must(r&&c.confirmed===true&&text(c.evidence)&&text(c.reference),'請確認實際退款及證據');positive(c.amount_twd);must(!s.refunds.some(x=>x.reference===text(c.reference)),'退款交易已登錄',409);must(c.amount_twd<=credit(s,r),'退款超過未分配餘額；已分配款項須先完成帳務調整');s.refunds.push({id,receipt_id:r.id,amount_twd:c.amount_twd,reference:text(c.reference),evidence:text(c.evidence,2000),created_at:now});break;}

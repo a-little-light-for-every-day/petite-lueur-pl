@@ -37,3 +37,23 @@ test('pre-send OAuth errors and definite Gmail rejections remain distinct',async
  await assert.rejects(sendOperationsMail(env,notice,key,async()=>new Response('{}',{status:401})),e=>e.code==='GMAIL_AUTH_RECONNECT_REQUIRED'&&e.definite===true);
  await assert.rejects(sendOperationsMail(env,notice,key,mock(async()=>new Response('{}',{status:403}))),e=>e.code==='GMAIL_PERMISSION_DENIED'&&e.definite===true);
 });
+
+test('notice formatting preserves URLs and approved text in both MIME alternatives with attachments', async()=>{
+ const {noticePlainText}=await import('../notice-format.js');
+ const text=noticePlainText('## 商品明細\r\n- **PL-261113-01** ×2 · NT$170\r\n\r\n[查單](https://example.com/a?sku=A_B#part)\r\n<確認>');
+ assert.equal(text,'商品明細\n・PL-261113-01 ×2 · NT$170\n\n查單：https://example.com/a?sku=A_B#part\n<確認>');
+ let mime;
+ const file={name:'下單證明.txt',mime_type:'text/plain',base64_data:'dGVzdA==',sha256:'proof'};
+ const db={prepare:()=>({bind:()=>({first:async()=>file})})};
+ await sendOperationsMail({...env,DB:db},{...notice,body:text,attachments:[{id:'a',sha256:'proof'}]},'format',mock(async(_url,options)=>{
+  mime=Buffer.from(JSON.parse(options.body).raw,'base64url').toString();
+  return new Response(JSON.stringify({id:'test-message'}));
+ }));
+ assert.match(mime,/multipart\/mixed/);
+ assert.match(mime,/multipart\/alternative/);
+ const decoded=Array.from(mime.matchAll(/Content-Transfer-Encoding: base64\r\n\r\n([\s\S]+?)\r\n--/g),m=>Buffer.from(m[1],'base64').toString());
+ assert.equal(decoded[0],text);
+ assert.match(decoded[1],/&lt;確認&gt;/);
+ assert.match(mime,/Content-Disposition: attachment/);
+ assert.match(mime,/dGVzdA==/);
+});

@@ -1,3 +1,4 @@
+import {noticeHtml} from './notice-format.js';
 const enc=new TextEncoder();const base64=s=>btoa(String.fromCharCode(...enc.encode(s)));const url64=s=>base64(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
 const mailError=(code,definite)=>Object.assign(new Error(code),{code,definite});
 // Stable RFC Message-ID: an operator can search Gmail Sent manually even if
@@ -19,10 +20,19 @@ export async function sendOperationsMail(env,n,key,fetcher=fetch){
  const token=await gmailAccess(env,fetcher);
  const msgid=await operationsMailMessageId(key);
  const headers=['From: Petite Lueur PL <'+env.GMAIL_SENDER+'>','To: '+n.to,'Message-ID: <'+msgid+'>','Subject: =?UTF-8?B?'+base64(n.subject)+'?=','MIME-Version: 1.0'];
- const textPart=['Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',base64(n.body).match(/.{1,76}/g).join('\r\n')].join('\r\n');
  const boundary='plops_'+msgid.slice('plops.'.length,msgid.indexOf('@'));
- const parts=[textPart,...files.map(f=>['Content-Type: '+f.mime_type,'Content-Transfer-Encoding: base64',"Content-Disposition: attachment; filename*=UTF-8''"+encodeURIComponent(f.name),'',f.base64_data.match(/.{1,76}/g).join('\r\n')].join('\r\n'))];
- const raw=files.length?headers.concat(['Content-Type: multipart/mixed; boundary="'+boundary+'"','','--'+boundary,parts.join('\r\n--'+boundary+'\r\n'),'--'+boundary+'--']).join('\r\n'):headers.concat([textPart]).join('\r\n');
+ const alternative=boundary+'_alternative';
+ const encodePart=(type,content)=>['Content-Type: '+type+'; charset=UTF-8','Content-Transfer-Encoding: base64','',(base64(content).match(/.{1,76}/g)||[]).join('\r\n')].join('\r\n');
+ const multipart=(type,delimiter,parts)=>[
+  'Content-Type: multipart/'+type+'; boundary="'+delimiter+'"','',
+  ...parts.flatMap(part=>['--'+delimiter,part]),'--'+delimiter+'--',
+ ].join('\r\n');
+ // Both MIME alternatives use the exact approved text snapshot.
+ const body=multipart('alternative',alternative,[
+  encodePart('text/plain',n.body),encodePart('text/html',noticeHtml(n.body)),
+ ]);
+ const attachments=files.map(f=>['Content-Type: '+f.mime_type,'Content-Transfer-Encoding: base64',"Content-Disposition: attachment; filename*=UTF-8''"+encodeURIComponent(f.name),'',f.base64_data.match(/.{1,76}/g).join('\r\n')].join('\r\n'));
+ const raw=headers.concat(files.length?multipart('mixed',boundary,[body,...attachments]):body).join('\r\n');
  let r;try{r=await fetcher('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({raw:url64(raw)}),signal:AbortSignal.timeout(25000)});}catch(e){
   const timeout=e?.name==='TimeoutError'||e?.name==='AbortError';
   console.error('PL3 Gmail acknowledgement unavailable',timeout?'timeout_or_abort':'transport_exception');
