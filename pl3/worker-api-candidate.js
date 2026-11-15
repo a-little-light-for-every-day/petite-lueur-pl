@@ -5,7 +5,7 @@ import storefrontCutover from './storefront-cutover-source.js';
 import operationsReceiverSource from './operations-receiver-source.js';
 import{operationsMirrorStatus,drainOperationsMirror}from './operations-mirror.js';
 import{exportOperationsBackup,restoreOperationsBackup,verifyOperationsBackup}from './operations-backup.js';
-import{customerServiceView}from './operations-services.js';
+import{customerServiceView,previewSharedQuote}from './operations-services.js';
 import {readApprovedLegacyCatalog,planLegacyCatalogImport,legacyProductDraft} from './catalog-source.js';
 import { checkoutOperations,publicOperationsCatalog,installOperations,operationsView,executeOperation,importOperations,sendQueuedNotice,recoverMailClaims,loadOperations,loadCatalogState,saveOperationsAttachment } from "./operations-store.js";
 import { sendOperationsMail,gmailAccess } from "./operations-mail.js";
@@ -391,6 +391,15 @@ export default {
         return new Response(qaBrowserJs,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
       }
       if(url.pathname==="/operations-app.js"&&request.method==="GET")return new Response(operationsBundle,{headers:{"Content-Type":"application/javascript; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+      if(url.pathname==="/api/operations/shared-quote"&&request.method==="POST"){
+        const {share_key}=await jsonBody(request);
+        if(typeof share_key!=='string'||!/^[0-9a-f-]{36}$/.test(share_key))fail('報價連結無效',404);
+        const row=await env.DB.prepare(`SELECT document_json FROM pl_ops_entities
+          WHERE kind='service_requests' AND json_extract(document_json,'$.share_key')=? LIMIT 1`).bind(share_key).first();
+        const quote=row?previewSharedQuote({service_requests:[JSON.parse(row.document_json)]},share_key):null;
+        if(!quote)fail('報價連結已使用、撤銷或到期',404);
+        return response({ok:true,...quote},200,origin);
+      }
       if(url.pathname==="/api/operations/service-requests"&&request.method==="GET"){const email=await authorizedEmail(request,env);return response({ok:true,requests:customerServiceView((await loadOperations(env)).state,email)},200,origin);}
       if(['/api/operations/service-request','/api/operations/service-action'].includes(url.pathname)&&request.method==='POST'){
         const email=await authorizedEmail(request,env),body=await jsonBody(request),current=await loadOperations(env);if(!/^[a-zA-Z0-9_-]{16,100}$/.test(body.key||''))fail('申請識別碼無效');const type=url.pathname.endsWith('/service-request')?'service_request':body.type;if(!['service_request','service_customer_accept','service_customer_decline'].includes(type))fail('服務操作無效');

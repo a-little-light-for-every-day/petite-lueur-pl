@@ -146,3 +146,29 @@ test('account keeps the official storefront navigation around the customer app',
  const admin=await worker.fetch(new Request('https://worker.example/admin-operations'),{DB:db});
  assert.doesNotMatch(await admin.text(),/account-site-header/);
 });
+
+test('public shared quote preview is uncached and confirmation still requires verified identity',async()=>{
+ const shareKey='db8a2388-59f4-42f0-912e-eab2cb56e25a';
+ let reads=0;
+ const quoteDb={prepare(sql){
+  assert.match(sql,/kind='service_requests'/);
+  return {bind(key){assert.equal(key,shareKey);return {async first(){
+   reads++;
+   return {document_json:JSON.stringify({share_key:key,email:null,status:'quoted',kind:'proxy',quote_version:1,
+    quote:{items:[{name:'立牌',variant:'白色',quantity:1,unit_price_twd:350,sku:'INTERNAL'}],
+     total_twd:350,expires_at:'2099-01-01T00:00:00Z',payment_due_at:'2099-01-02T00:00:00Z',
+     terms:'運費另計',evidence:'private'}})};
+  }}}};
+ }};
+ const post=(path,data)=>worker.fetch(new Request('https://worker.example'+path,{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),{DB:quoteDb,SESSION_SECRET:secret});
+ const preview=await post('/api/operations/shared-quote',{share_key:shareKey});
+ assert.equal(preview.status,200);
+ assert.equal(preview.headers.get('cache-control'),'no-store');
+ const body=await preview.json();
+ assert.deepEqual(body.quote.items,[{name:'立牌',variant:'白色',quantity:1,unit_price_twd:350}]);
+ assert.equal(body.quote.evidence,undefined);
+ assert.equal((await post('/api/operations/shared-quote',{share_key:'invalid'})).status,404);
+ assert.equal((await post('/api/operations/service-action',{type:'service_customer_accept',share_key:shareKey})).status,401);
+ assert.equal(reads,1);
+});
