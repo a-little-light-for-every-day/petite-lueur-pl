@@ -332,3 +332,39 @@ test('void test payment report through operations command uses CAS, persists aud
  assert.equal(audit.n,1);
  db.close();
 });
+
+test('shareable service quotes disclose only public terms and create one verified customer order',async()=>{
+ const {customerServiceView,previewSharedQuote}=await import('../operations-services.js');
+ const {operationsMirrorDocuments}=await import('../operations-mirror.js');
+ const command={type:'service_share_quote',kind:'proxy',confirmed:true,evidence:'private source evidence',
+  items:[{name:'壓克力立牌',variant:'白色',quantity:2,unit_price_twd:350,shipping_units:3}],
+  expires_at:'2099-01-01T00:00:00Z',payment_due_at:'2099-01-02T00:00:00Z'};
+ const {state:created}=applyOperation(newOperations(),command,{id:'SHARED-QUOTE-1',now:NOW});
+ const key=created.service_requests[0].share_key;
+ const preview=previewSharedQuote(created,key,NOW);
+ assert.deepEqual(preview.quote.items,[{name:'壓克力立牌',variant:'白色',quantity:2,unit_price_twd:350}]);
+ assert.equal(preview.quote.total_twd,700);
+ assert.equal(preview.quote.evidence,undefined);
+ assert.equal(previewSharedQuote(created,key,command.expires_at),null);
+ assert.equal(customerServiceView(created,'test@example.com').length,0);
+ assert.equal(operationsMirrorDocuments(created).length,0);
+ assert.equal(created.orders.length,0);
+ assert.equal(created.notices.length,0);
+ const accept={type:'service_customer_accept',share_key:key,authenticated_email:'test@example.com',
+  quote_version:1,name:'測試',confirmed:true,adult_confirmed:true};
+ assert.throws(()=>applyOperation(created,{...accept,authenticated_email:''},{now:NOW}),/報價連結/);
+ assert.throws(()=>applyOperation(created,{...accept,quote_version:0},{now:NOW}),/有效報價/);
+ const {state:accepted}=applyOperation(created,accept,{id:'SHARED-ACCEPT-1',now:NOW});
+ assert.equal(accepted.orders.length,1);
+ assert.equal(accepted.orders[0].email,'test@example.com');
+ assert.equal(accepted.orders[0].items[0].variant,'白色');
+ assert.equal(accepted.invoices[0].amount_twd,700);
+ assert.equal(accepted.notices[0].status,'draft');
+ assert.equal(previewSharedQuote(accepted,key,NOW),null);
+ assert.throws(()=>applyOperation(accepted,{...accept,authenticated_email:'other@example.com'},{now:NOW}),/已使用/);
+ const {state:revoked}=applyOperation(created,{type:'service_revoke_share',request_id:'SHARED-QUOTE-1'},{now:NOW});
+ assert.equal(previewSharedQuote(revoked,key,NOW),null);
+ const {state:revised}=applyOperation(created,{...command,type:'service_quote',request_id:'SHARED-QUOTE-1'},{now:NOW});
+ assert.equal(previewSharedQuote(revised,key,NOW),null);
+ assert.equal(previewSharedQuote(revised,revised.service_requests[0].share_key,NOW).quote_version,2);
+});
