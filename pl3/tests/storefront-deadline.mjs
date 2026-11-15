@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { formatTaiwanCutoff, legacyOperationsCatalog } from '../storefront-handoff.js';
 
-test('PL storefront displays Taiwan intake cutoff while retaining the ISO deadline for order checks', () => {
+test('PL storefront displays Taiwan intake cutoff while retaining the ISO deadline for order checks', t => {
+ t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-15T13:00:00.000Z') });
  const raw = '2026-11-15T14:00:00.000Z';
  assert.equal(formatTaiwanCutoff(raw), '2026/11/15 22:00（台灣時間）');
  const state = {
