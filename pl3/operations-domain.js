@@ -40,6 +40,15 @@ export const credit=(s,r)=>r.amount_twd-s.allocations.filter(x=>x.receipt_id===r
 // A payment report is only an unverified claim. Linking it to an EXISTING
 // bank receipt must never create another receipt or allocation. The receipt
 // must already have an active allocation to that report's own order/phase.
+// A screenshot can yield a PL reference with or without the sender's last five digits.
+function sameReceiptReference(existing, candidate) {
+  if (existing === candidate) return true;
+  const parsed = /^PL-(\d{8}-\d{6}-\d{4}-[1-9]\d*)(?:-(\d{5}))?$/;
+  const saved = parsed.exec(existing);
+  const incoming = parsed.exec(candidate);
+  return !!(saved && incoming && saved[1] === incoming[1] && (!saved[2] || !incoming[2]));
+}
+
 export function reportMatchesExistingReceipt(s,report,receipt){
  if(!report||!receipt||report.status!=='pending'||receipt.kind!=='bank_confirmed')return false;
  const reportedEmail=String(report.customer_email||'').trim().toLowerCase();
@@ -488,7 +497,8 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
   result={report_id:r.id,order_id:r.order_id,status:'void',receipts_created:0,allocations_created:0,notices_created:0};break;
  }
  case 'receipt_confirm':{
-  must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');must(!s.receipts.some(r=>r.transaction_id===text(c.transaction_id)),'此交易已入帳，請勿重複',409);
+  must(c.confirmed===true&&text(c.evidence)&&text(c.transaction_id),'請確認真實入帳並填交易識別碼及證據');const codOrder=c.customer_order_id?order(s,c.customer_order_id):null;must(email(c.customer_email)||(codOrder&&!codOrder.email&&codOrder.first_channel==='cod'&&c.kind==='cod_settled'),'收款顧客識別無效；無Email的COD僅可按原訂單核對平台撥款');positive(c.amount_twd);must(['bank_confirmed','cod_settled'].includes(c.kind),'請指定銀行實收或COD實際撥款');const reference=text(c.transaction_id);
+  must(!s.receipts.some(r=>sameReceiptReference(r.transaction_id,reference)),'此交易已入帳，請勿重複',409);
   if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(report&&report.status==='pending','此回報已核對或不存在',409);must(Array.isArray(c.allocations)&&c.allocations.length>0,'請指定款項分配');const ownShare=c.allocations.filter(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);return b?.order_id===report.order_id&&(!report.phase||b.phase===report.phase);}).reduce((sum,a)=>sum+a.amount_twd,0);must(report.customer_email?.toLowerCase()===c.customer_email?.toLowerCase()&&(report.amount_twd===c.amount_twd||report.amount_twd===ownShare&&ownShare>0),'付款回報顧客或金額與入帳不符');must(ownShare>0,'付款回報與所選客單或付款階段不符');must(c.allocations.every(a=>{const b=s.invoices.find(b=>b.id===a.invoice_id);const o=s.orders.find(o=>o.id===b?.order_id);return o?.email?.trim().toLowerCase()===report.customer_email?.toLowerCase();}), '合併入帳只能分配給同一顧客的帳單');}
   const r={id,transaction_id:text(c.transaction_id),customer_email:email(c.customer_email)?c.customer_email.trim().toLowerCase():null,customer_key:email(c.customer_email)?c.customer_email.trim().toLowerCase():'order:'+codOrder.id,customer_order_id:codOrder?.id||null,amount_twd:c.amount_twd,kind:c.kind,evidence:text(c.evidence,2000),received_at:c.received_at||now};s.receipts.push(r);allocate(s,r,c.allocations);changed.push(...c.allocations.map(a=>invoice(s,a.invoice_id).order_id));if(c.report_id){const report=(s.reports||[]).find(x=>x.id===c.report_id);must(reportMatchesExistingReceipt(s,report,r),'付款回報歸屬或分配金額不符');report.status='confirmed';report.receipt_id=r.id;}result={receipt_id:r.id,credit_twd:credit(s,r)};break;
  }

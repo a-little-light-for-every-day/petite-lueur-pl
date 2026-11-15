@@ -37,6 +37,15 @@ import { customerSessionCookie, readCustomerSessionCookie, clearCustomerSessionC
 // Never deploy as production before integration tests and reconciliation.
 const ORIGIN = "https://a-little-light-for-every-day.github.io";
 // Report-only policy keeps the enforced UI policy unchanged while measuring breakage.
+function operationsPageCsp(path) {
+  const ocr = path === '/admin-operations'
+    ? " 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/worker.min.js https://cdn.jsdelivr.net/npm/tesseract.js-core@6.1.2/"
+    : '';
+  const models = ocr ? " https://cdn.jsdelivr.net/npm/@tesseract.js-data/ https://cdn.jsdelivr.net/npm/tesseract.js-core@6.1.2/" : '';
+  const worker = ocr ? " worker-src blob:;" : '';
+  return `default-src 'none'; style-src 'unsafe-inline'; script-src 'self'${ocr}; connect-src 'self'${models}; img-src 'self' https: data:;${worker} base-uri 'none'; frame-ancestors 'none'`;
+}
+
 const CSP_MONITOR = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; font-src 'self' data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; report-uri /api/security/csp-report";
 const encoder = new TextEncoder();
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
@@ -370,7 +379,7 @@ export default {
       if(pageTitle&&request.method==="GET")return new Response((url.pathname==="/account"?accountHtml:operationsHtml).replace(
         "<title>Petite Lueur PL｜營運工作台</title>",
         `<title>${pageTitle}</title><meta property="og:title" content="${pageTitle}">`
-      ),{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' https: data:; base-uri 'none'; frame-ancestors 'none'","Content-Security-Policy-Report-Only":CSP_MONITOR}});
+      ),{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Content-Security-Policy":operationsPageCsp(url.pathname),"Content-Security-Policy-Report-Only":CSP_MONITOR}});
       // An explicit owner-only QA entry. Keep legacy /admin-test disabled in cutover mode.
       if(url.pathname==="/admin-qa-payment-bill"&&request.method==="GET"){
         return Response.redirect(new URL("/admin-qa#qa-payment-bill",request.url),302);
