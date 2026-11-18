@@ -576,7 +576,7 @@ export function applyOperation(original,c,{now=new Date().toISOString(),id=crypt
  }
  case 'movement_record':{
   const stages=['purchased','overseas','transit','taiwan','shipped','delivered'];must(['overseas','transit','taiwan','delivered'].includes(c.stage),'此階段請使用專用出貨操作');must(text(c.evidence),'請填物流／入庫證據');must(Array.isArray(c.items)&&c.items.length>0,'請指定品項');
-  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l&&open(o),'找不到有效品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物物流');positive(x.quantity);const prev=stages[stages.indexOf(c.stage)-1];must(x.quantity<=(l.fulfillment_kind==='forwarding'&&c.stage==='overseas'?l.quantity:l[prev])-l[c.stage],'超過上一階段已確認數量');l[c.stage]+=x.quantity;}
+  for(const x of c.items){const o=order(s,x.order_id),l=o.items.find(i=>i.id===x.item_id);must(l&&open(o),'找不到有效品項');must(!['fee','service'].includes(l.fulfillment_kind),'服務與手續費不能登錄實物物流');positive(x.quantity);const prev=stages[stages.indexOf(c.stage)-1];const directForwardingArrival=l.fulfillment_kind==='forwarding'&&c.stage==='taiwan';const previousQuantity=directForwardingArrival||l.fulfillment_kind==='forwarding'&&c.stage==='overseas'?l.quantity:l[prev];must(x.quantity<=previousQuantity-l[c.stage],'超過可登錄數量');l[c.stage]+=x.quantity;}
   result={stage:c.stage};break;
  }
  case 'second_cost_draft':{
