@@ -59,11 +59,29 @@ export async function commit(env,current,next,{key,type,requestHash,actor,result
  if(!res[0]?.meta?.changes)throw opsError('資料已被更新，請重新整理後再操作',409);
  return {ok:true,version:current.version+1,result};
 }
+// The Gmail delivery ledger is authoritative for an in-flight send. Recover an
+// expired claim as UNKNOWN (never queued), then repair a lagging aggregate
+// notice from a terminal delivery row. A genuinely sending mail stays locked.
+async function reconcileMailGate(env,current){
+ if(!current.state.notices.some(n=>n.status==='sending'))return current;
+ await recoverMailClaims(env);
+ const latest=await loadOperations(env);
+ for(const n of latest.state.notices.filter(n=>n.status==='sending')){
+  const delivery=await env.DB.prepare('SELECT status,gmail_message_id,gmail_thread_id,error_code,sent_at FROM pl_ops_mail WHERE notice_id=?').bind(n.id).first();
+  if(!delivery||!['sent','failed','unknown','void'].includes(delivery.status))continue;
+  if(delivery.status==='sent'&&!delivery.gmail_message_id)continue; // No evidence of Gmail acceptance.
+  const fields=delivery.status==='sent'
+   ? {gmail_message_id:delivery.gmail_message_id,gmail_thread_id:delivery.gmail_thread_id,sent_at:delivery.sent_at}
+   : {error_code:delivery.error_code||null};
+  await persistMailResult(env,n.id,delivery.status,fields);
+ }
+ return loadOperations(env);
+}
 export async function executeOperation(body,actor,env,{requestIdentity}={}){
  const {key,version,command}=body||{};if(!/^[\w:-]{8,160}$/.test(key||'')||!Number.isInteger(version))throw opsError('缺少操作識別碼或資料版本');
  const requestHash=await hash(JSON.stringify(requestIdentity===undefined?{version,command}:requestIdentity));const prior=await env.DB.prepare('SELECT request_hash,result_json,version FROM pl_ops_commands WHERE id=?').bind(key).first();
  if(prior){if(prior.request_hash!==requestHash)throw opsError('操作識別碼已被不同內容使用',409);return {ok:true,replayed:true,version:prior.version,result:JSON.parse(prior.result_json)};}
- const current=await loadOperations(env);if(current.state.notices.some(n=>n.status==='sending'))throw opsError('通知正在寄送，請稍後重新整理再操作',423);if(current.version!==version)throw opsError('資料版本已變動，請重新整理',409);
+ let current=await loadOperations(env);if(current.state.notices.some(n=>n.status==='sending'))current=await reconcileMailGate(env,current);if(current.state.notices.some(n=>n.status==='sending'))throw opsError('通知正在寄送，請稍後重新整理再操作',423);if(current.version!==version)throw opsError('資料版本已變動，請重新整理',409);
  if(command.type==='notice_edit'&&command.attachments){if(!Array.isArray(command.attachments)||command.attachments.length>4)throw opsError('每封最多4份附件');const verified=[];for(const x of command.attachments){const file=await env.DB.prepare('SELECT id,name,mime_type,size_bytes,sha256 FROM pl_ops_attachments WHERE id=?').bind(x.id).first();if(!file)throw opsError('附件不存在');verified.push(file);}if(verified.reduce((n,x)=>n+x.size_bytes,0)>4000000)throw opsError('附件合計上限4MB');command.attachments=verified;}
  if(command.type==='notice_backfill_sent'){
   if(!command.sent_at||!Number.isFinite(Date.parse(command.sent_at))||Date.parse(command.sent_at)>Date.now()+60000)throw opsError('Gmail 寄送時間無效');
@@ -124,8 +142,10 @@ export async function sendQueuedNotice(env,noticeId,send){
 export async function recoverMailClaims(env){
  // A lost acknowledgement is not a safe retry. Surface old in-flight requests for investigation.
  const stale=await env.DB.prepare("SELECT notice_id FROM pl_ops_mail WHERE status='sending' AND claimed_at<datetime('now','-5 minutes')").all();
- await env.DB.prepare("UPDATE pl_ops_mail SET status='unknown',error_code='ACKNOWLEDGEMENT_MISSING',updated_at=CURRENT_TIMESTAMP WHERE status='sending' AND claimed_at<datetime('now','-5 minutes')").run();
- for(const row of stale.results||[])await persistMailResult(env,row.notice_id,'unknown',{error_code:'ACKNOWLEDGEMENT_MISSING'});
+ for(const row of stale.results||[]){
+  const changed=await env.DB.prepare("UPDATE pl_ops_mail SET status='unknown',error_code='ACKNOWLEDGEMENT_MISSING',updated_at=CURRENT_TIMESTAMP WHERE notice_id=? AND status='sending' AND claimed_at<datetime('now','-5 minutes')").bind(row.notice_id).run();
+  if(changed.meta?.changes)await persistMailResult(env,row.notice_id,'unknown',{error_code:'ACKNOWLEDGEMENT_MISSING'});
+ }
 }
 
 export async function saveOperationsAttachment(body,actor,env){
